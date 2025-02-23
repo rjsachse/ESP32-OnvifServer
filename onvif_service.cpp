@@ -1,5 +1,6 @@
 #include "ESP32-OnvifServer.h"
-
+//#include "lwip/apps/sntp.h" // Include SNTP header
+#include "esp_sntp.h"
 #include "service_headers.h"
 #include "discovery_service.h"
 #include "device_service.h"
@@ -86,6 +87,41 @@ void ONVIFServer::populateOnvifResponse(const char* mainHeader, const char* temp
   strncat((char*)onvifBuffer, footer, ONVIF_BUFFER_SIZE - strlen((char*)onvifBuffer) - 1);
 }
 
+char* ONVIFServer::buildPart(const char* format, ...) {
+  char* partBuffer = (char*)malloc(2048);  // Dynamically allocate memory
+  if (partBuffer == NULL) {
+    LOG_ERR("Memory allocation failed!");
+    return NULL;
+  }
+  va_list args;
+  va_start(args, format);
+  vsnprintf(partBuffer, 2048, format, args);
+  va_end(args);
+  return partBuffer;
+}
+
+
+void ONVIFServer::buildDynamicResponse(const char* mainStr, ...) {
+  if (onvifBuffer == NULL) {
+    LOG_ERR("ONVIF Buffer not allocated! Unable to create response.");
+    return;
+  }
+
+  // Initialize onvifBuffer with mainStr
+  snprintf((char*)onvifBuffer, ONVIF_BUFFER_SIZE, "%s", mainStr);
+
+  va_list args;
+  va_start(args, mainStr);
+  const char* arg;
+  while ((arg = va_arg(args, const char*)) != NULL) {
+    strncat((char*)onvifBuffer, arg, ONVIF_BUFFER_SIZE - strlen((char*)onvifBuffer) - 1);
+  }
+  va_end(args);
+  strncat((char*)onvifBuffer, footer, ONVIF_BUFFER_SIZE - strlen((char*)onvifBuffer) - 1);
+  free((void*)arg); // Free the allocated memory after appending
+}
+
+
 void ONVIFServer::sendMatch(const char* messageID, const char* relatesToID, const char* action) {
   const char* fullAction;
   if (strcmp(action, "probe") == 0) {
@@ -99,7 +135,7 @@ void ONVIFServer::sendMatch(const char* messageID, const char* relatesToID, cons
   populateOnvifResponse(discoverNS, onvifMatch, messageID, relatesToID, fullAction,
                         (strcmp(action, "probe") == 0 ? "ProbeMatches" : "ResolveMatches"),
                         (strcmp(action, "probe") == 0 ? "ProbeMatch" : "ResolveMatch"),
-                        deviceUUID, APP_NAME, CAM_BOARD, ipAddress,
+                        deviceUUID, location, name, hardware, ipAddress,
                         (strcmp(action, "probe") == 0 ? "ProbeMatch" : "ResolveMatch"),
                         (strcmp(action, "probe") == 0 ? "ProbeMatches" : "ResolveMatches"));
 }
@@ -107,146 +143,115 @@ void ONVIFServer::sendMatch(const char* messageID, const char* relatesToID, cons
 void ONVIFServer::sendMessage(const char* messageType) {
   char messageID[37];
   generateUUID(messageID, sizeof(messageID));
-  populateOnvifResponse(discoverNS, messageType, messageID, deviceUUID, APP_NAME, CAM_BOARD, ipAddress);
+  populateOnvifResponse(discoverNS, messageType, messageID, deviceUUID, location, name, hardware, ipAddress);
   sendto(sock, (char*)onvifBuffer, strlen((char*)onvifBuffer), 0, (const struct sockaddr*)&addr, sizeof(addr));
+}
+
+bool extractValue(const char* xml, const char* tag, int& value) {
+  const char* start = strstr(xml, tag);
+  if (start) {
+    start = strchr(start, '>') + 1;
+    const char* end = strchr(start, '<');
+    if (end) {
+      char buffer[16];
+      strncpy(buffer, start, end - start);
+      buffer[end - start] = '\0';
+      value = atoi(buffer);
+      return true;
+    }
+  }
+  return false;
 }
 
 void ONVIFServer::parseAndApplySettings(const char* requestBody) {
   LOG_INF("Received request body: %s", requestBody);
-
-  auto extractValue = [](const char* xml, const char* tag) -> int {
-    const char* start = strstr(xml, tag);
-    if (start) {
-      start = strchr(start, '>') + 1;
-      const char* end = strchr(start, '<');
-      if (end) {
-        char value[16];
-        strncpy(value, start, end - start);
-        value[end - start] = '\0';
-        return atoi(value);
-      }
-    }
-    return -1;
-  };
 
   sensor_t* s = esp_camera_sensor_get();
   if (!s) {
     LOG_ERR("Failed to get camera sensor");
     return;
   }
-  int brightness = extractValue(requestBody, "Brightness");
-  if (brightness != -1) {
-    if (s->set_brightness(s, brightness) == 0) {
-      LOG_INF("Brightness set to %d", brightness);
-    } else {
-      LOG_ERR("Failed to set Brightness to %d", brightness);
-    }
-  }
 
-  int contrast = extractValue(requestBody, "Contrast");
-  if (contrast != -1) {
-    if (s->set_contrast(s, contrast) == 0) {
-      LOG_INF("Contrast set to %d", contrast);
-    } else {
-      LOG_ERR("Failed to set Contrast to %d", contrast);
-    }
-  }
-
-  int saturation = extractValue(requestBody, "ColorSaturation");
-  if (saturation != -1) {
-    if (s->set_saturation(s, saturation) == 0) {
-      LOG_INF("Color Saturation set to %d", saturation);
-    } else {
-      LOG_ERR("Failed to set Color Saturation to %d", saturation);
-    }
-  }
-
-  int sharpness = extractValue(requestBody, "Sharpness");
-  if (sharpness != -1) {
-    if (s->set_sharpness(s, sharpness) == 0) {
-      LOG_INF("Sharpness set to %d", sharpness);
-    } else {
-      LOG_ERR("Failed to set Sharpness to %d", sharpness);
-    }
-  }
+  int value;
+  if (extractValue(requestBody, "Brightness", value)) s->set_brightness(s, value);
+  if (extractValue(requestBody, "Contrast", value)) s->set_contrast(s, value);
+  if (extractValue(requestBody, "ColorSaturation", value)) s->set_saturation(s, value);
+  if (extractValue(requestBody, "Sharpness", value)) s->set_sharpness(s, value);
 
   // Exposure settings
   if (strstr(requestBody, "Exposure")) {
-    if (strstr(requestBody, "Mode>AUTO")) {
-      if (s->set_exposure_ctrl(s, 1) == 0) {
-        LOG_INF("Exposure set to AUTO");
-      } else {
-        LOG_ERR("Failed to set Exposure to AUTO");
-      }
-    } else if (strstr(requestBody, "Mode>MANUAL")) {
-      if (s->set_exposure_ctrl(s, 0) == 0) {
-        LOG_INF("Exposure set to MANUAL");
-      } else {
-        LOG_ERR("Failed to set Exposure to MANUAL");
-      }
-    }
+    if (strstr(requestBody, "Mode>AUTO")) s->set_exposure_ctrl(s, 1);
+    else if (strstr(requestBody, "Mode>MANUAL")) s->set_exposure_ctrl(s, 0);
 
-    int gain = extractValue(requestBody, "Gain");
-    if (gain != -1) {
-      if (s->set_agc_gain(s, gain) == 0) {
-        LOG_INF("Gain set to %d", gain);
-      } else {
-        LOG_ERR("Failed to set Gain to %d", gain);
-      }
-    }
-
-    int exposureTime = extractValue(requestBody, "ExposureTime");
-    if (exposureTime != -1) {
-      if (s->set_aec_value(s, exposureTime) == 0) {
-        LOG_INF("Exposure Time set to %d", exposureTime);
-      } else {
-        LOG_ERR("Failed to set Exposure Time to %d", exposureTime);
-      }
-    }
+    if (extractValue(requestBody, "Gain", value)) s->set_agc_gain(s, value);
+    if (extractValue(requestBody, "ExposureTime", value)) s->set_aec_value(s, value);
   }
 
   // White Balance settings
   if (strstr(requestBody, "WhiteBalance")) {
-    if (strstr(requestBody, "Mode>AUTO")) {
-      if (s->set_whitebal(s, 1) == 0) {
-        LOG_INF("White Balance set to AUTO");
-      } else {
-        LOG_ERR("Failed to set White Balance to AUTO");
-      }
-    } else if (strstr(requestBody, "Mode>MANUAL")) {
-      if (s->set_whitebal(s, 0) == 0) {
-        LOG_INF("White Balance set to MANUAL");
-      } else {
-        LOG_ERR("Failed to set White Balance to MANUAL");
-      }
-    }
+    if (strstr(requestBody, "Mode>AUTO")) s->set_whitebal(s, 1);
+    else if (strstr(requestBody, "Mode>MANUAL")) s->set_whitebal(s, 0);
   }
 }
+
 
 void ONVIFServer::onvifServiceResponse(const char* action, const char* uri, const char* requestBody) {
   LOG_INF("Onvif request: %s at URI: %s", action, uri);
 
+  char messageID[37];
+  generateUUID(messageID, sizeof(messageID));
+
   if (strstr(uri, "/device_service")) {
     // Device services
     if (strstr(action, "GetDeviceInformation")) {
-      populateOnvifResponse(deviceHeader, getDeviceInfo, onvifManufacturer, onvifModel, APP_VER, "123456", "HW123456");
+      populateOnvifResponse(maxHeader, getDeviceInfo, manufacturer, model, version, serial, hardware);
     } else if (strstr(action, "GetCapabilities")) {
-      populateOnvifResponse(maxHeader, getCapabilities, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress);
+      buildDynamicResponse(maxHeader, getCapabilitiesStart,
+        buildPart(getCapabilitiesDevice, ipAddress),
+        enableEvents ? buildPart(getCapabilitiesEvents, ipAddress) : nullptr,
+        buildPart(getCapabilitiesImaging, ipAddress),
+        buildPart(getCapabilitiesMedia, ipAddress),
+        buildPart(getCapabilitiesMedia, ipAddress),
+        buildPart(getCapabilitiesExension, ipAddress),
+        enablePTZ ? buildPart(getCapabilitiesPTZ, ipAddress) : nullptr,
+        getCapabilitiesEnd, NULL
+      );
+
     } else if (strstr(action, "GetServices")) {
-      populateOnvifResponse(deviceHeader, getServices, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress);
+      populateOnvifResponse(maxHeader, getServices, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress);
     } else if (strstr(action, "GetScopes")) {
-      populateOnvifResponse(deviceHeader, getScopes);
+      populateOnvifResponse(maxHeader, getScopes, location, name, hardware);
     } else if (strstr(action, "GetZeroConfiguration")) {
-      populateOnvifResponse(deviceHeader, getZeroConfig, ipAddress);
+      populateOnvifResponse(maxHeader, getZeroConfig, ipAddress);
     } else if (strstr(action, "GetNetworkInterfaces")) {
-      populateOnvifResponse(deviceHeader, getNetworkInterfaces, "24:62:AB:D5:4C:18", ipAddress);
+      char macAddress[18];
+      snprintf(macAddress, sizeof(macAddress), "%s", WiFi.macAddress().c_str());
+      populateOnvifResponse(maxHeader, getNetworkInterfaces, macAddress, ipAddress);
     } else if (strstr(action, "GetDNS")) {
-      populateOnvifResponse(deviceHeader, getDNS);
+      char gatewayIP[16];
+      snprintf(gatewayIP, sizeof(gatewayIP), "%u.%u.%u.%u", 
+               WiFi.gatewayIP()[0], WiFi.gatewayIP()[1], 
+               WiFi.gatewayIP()[2], WiFi.gatewayIP()[3]);
+      populateOnvifResponse(deviceHeader, getDNS, gatewayIP);
     } else if (strstr(action, "GetSystemDateAndTime")) {
-      populateOnvifResponse(deviceHeader, getSystemDateAndTime);
+      time_t now;
+      struct tm timeinfo;
+      time(&now);
+      localtime_r(&now, &timeinfo);
+
+      const char* dateTimeType = (sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED) ? "NTP" : "Manual";
+      const char* daylightSavings = timeinfo.tm_isdst > 0 ? "true" : "false";
+
+      populateOnvifResponse(maxHeader, getSystemDateAndTime,
+                            dateTimeType, daylightSavings, timezone,
+                            timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec,
+                            timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday);
+    } else if (strstr(action, "GetEndpointReference")) {
+      populateOnvifResponse(maxHeader, getEndpointReference, deviceUUID);
     } else {
       snprintf((char*)onvifBuffer, ONVIF_BUFFER_SIZE, "UNKNOWN");
     }
+
   } else if (strstr(uri, "/media_service") || strstr(uri, "/media2_service")) { // Add media2_service handling
     // Media services
     if (strcmp(action, "GetProfile") == 0) {
@@ -271,9 +276,18 @@ void ONVIFServer::onvifServiceResponse(const char* action, const char* uri, cons
       populateOnvifResponse(maxHeader, getVideoEncoderConfigurationOptions);
     } else if (strstr(action, "GetAudioDecoderConfigurations")) {
       populateOnvifResponse(mediaHeader, getAudioDecoderConfigurations);
+    } else if (strstr(action, "GetAudioSources")) {
+      populateOnvifResponse(mediaHeader, getAudioSources);
+    } else if (strstr(action, "GetAudioOutputConfiguration")) {
+      populateOnvifResponse(mediaHeader, getAudioOutputConfiguration);
+    } else if (strstr(action, "GetAudioOutputConfigurationOptions")) {
+      populateOnvifResponse(mediaHeader, getAudioOutputConfigurationOptions);
+    } else if (strstr(action, "GetAudioOutputConfigurations")) {
+      populateOnvifResponse(mediaHeader, getAudioOutputConfigurations);
     } else {
       snprintf((char*)onvifBuffer, ONVIF_BUFFER_SIZE, "UNKNOWN");
     }
+
   } else if (strstr(uri, "/image_service")) {
     // Imaging services
     if (strstr(action, "GetImagingSettings")) {
@@ -304,6 +318,44 @@ void ONVIFServer::onvifServiceResponse(const char* action, const char* uri, cons
     } else if (strstr(action, "SetImagingSettings")) {
       if (requestBody) parseAndApplySettings(requestBody);
       populateOnvifResponse(maxHeader, setImagingSettings);
+    } else {
+      snprintf((char*)onvifBuffer, ONVIF_BUFFER_SIZE, "UNKNOWN");
+    }
+    
+  } else if (strstr(uri, "/ptz_service")) {
+    // PTZ services
+    if (strstr(action, "GetNodes")) {
+      populateOnvifResponse(ptzHeader, getNodes);
+    } else if (strstr(action, "GetConfigurations")) {
+      populateOnvifResponse(ptzHeader, getConfigurations);
+    } else {
+      snprintf((char*)onvifBuffer, ONVIF_BUFFER_SIZE, "UNKNOWN");
+    }
+
+  } else if (strstr(uri, "/event_service")) {
+    // Event services
+    char currentTime[32], terminationTime[32], utcTime[32];
+    // Generate current, termination, and UTC times
+    time_t now = time(NULL);
+    struct tm timeinfo;
+    gmtime_r(&now, &timeinfo);
+    strftime(currentTime, sizeof(currentTime), "%Y-%m-%dT%H:%M:%SZ", &timeinfo);
+    timeinfo.tm_min += 1; // Add 1 minute for termination time
+    mktime(&timeinfo);
+    strftime(terminationTime, sizeof(terminationTime), "%Y-%m-%dT%H:%M:%SZ", &timeinfo);
+    strftime(utcTime, sizeof(utcTime), "%Y-%m-%dT%H:%M:%SZ", &timeinfo);
+
+    char messageID[42];
+    generateUUID(messageID, sizeof(messageID));
+
+    if (strstr(action, "GetEventProperties")) {
+      populateOnvifResponse(maxHeader, getEventProperties, messageID);
+    } else if (strstr(action, "CreatePullPointSubscription")) {
+      populateOnvifResponse(maxHeader, createPullPointSubscription, messageID, ipAddress, currentTime, terminationTime);
+    } else if (strstr(action, "PullMessages")) {
+      populateOnvifResponse(maxHeader, pullMessages, messageID, currentTime, terminationTime, utcTime, utcTime);
+    } else if (strstr(action, "Unsubscribe")) {
+      populateOnvifResponse(maxHeader, unsubscribe, messageID);
     } else {
       snprintf((char*)onvifBuffer, ONVIF_BUFFER_SIZE, "UNKNOWN");
     }
@@ -343,5 +395,5 @@ void ONVIFServer::sendHelloWrapper(void* arg) {
 }
 
 void ONVIFServer::sendHello() {
-  sendMessage("Hello");
+  sendMessage(onvifHello);
 }

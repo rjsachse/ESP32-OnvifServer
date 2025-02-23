@@ -1,6 +1,6 @@
-//Events
-const char* createPullPointSubscriptionResponse =
-  "<s:Envelope>"
+// Events
+
+const char* createPullPointSubscription =
   "<s:Header>"
   "<wsa:MessageID>urn:uuid:%s</wsa:MessageID>"
   "<wsa:To>http://www.w3.org/2005/08/addressing/anonymous</wsa:To>"
@@ -9,10 +9,71 @@ const char* createPullPointSubscriptionResponse =
   "<s:Body>"
   "<tev:CreatePullPointSubscriptionResponse>"
   "<tev:SubscriptionReference>"
-  "<wsa:Address>http://%s/event_service/0</wsa:Address>"
+  "<wsa:Address>http://%s/onvif/event_service</wsa:Address>"
   "</tev:SubscriptionReference>"
-  "<wsnt:CurrentTime>2024-10-26T03:04:29Z</wsnt:CurrentTime>"
-  "<wsnt:TerminationTime>2024-10-26T03:05:29Z</wsnt:TerminationTime>"
-  "</tev:CreatePullPointSubscriptionResponse>"
-  "</s:Body>"
-  "</s:Envelope>";
+  "<wsnt:CurrentTime>%s</wsnt:CurrentTime>"
+  "<wsnt:TerminationTime>%s</wsnt:TerminationTime>"
+  "</tev:CreatePullPointSubscriptionResponse>";
+
+const char* getEventProperties =
+  "<s:Header>"
+  "<wsa:MessageID>urn:uuid:%s</wsa:MessageID>"
+  "<wsa:To>http://www.w3.org/2005/08/addressing/anonymous</wsa:To>"
+  "<wsa:Action>http://www.onvif.org/ver10/events/wsdl/EventPortType/GetEventPropertiesResponse</wsa:Action>"
+  "</s:Header>"
+  "<s:Body>"
+  "<tev:GetEventPropertiesResponse>"
+  "<tev:TopicNamespaceLocation>http://www.onvif.org/onvif/ver10/topics/topicns.xml</tev:TopicNamespaceLocation>"
+  "<wsnt:FixedTopicSet>true</wsnt:FixedTopicSet>"
+  "<wsnt:TopicExpressionDialect>http://www.onvif.org/ver10/tev/topicExpression/ConcreteSet</wsnt:TopicExpressionDialect>"
+  "<wsnt:MessageContentFilterDialect>http://www.onvif.org/ver10/tev/messageContentFilter/ItemFilter</wsnt:MessageContentFilterDialect>"
+  "<wsnt:ProducerPropertiesFilterDialect>http://www.onvif.org/ver10/tev/producerPropertiesFilter/ItemFilter</wsnt:ProducerPropertiesFilterDialect>"
+  "<wsnt:MessageContentSchemaLocation>http://www.onvif.org/onvif/ver10/schema/onvif.xsd</wsnt:MessageContentSchemaLocation>"
+  "</tev:GetEventPropertiesResponse>";
+
+const char* pullMessages =
+  "<s:Header>"
+  "<wsa:MessageID>urn:uuid:%s</wsa:MessageID>"
+  "<wsa:To>http://www.w3.org/2005/08/addressing/anonymous</wsa:To>"
+  "<wsa:Action>http://www.onvif.org/ver10/events/wsdl/EventPortType/PullMessagesResponse</wsa:Action>"
+  "</s:Header>"
+  "<s:Body>"
+  "<tev:PullMessagesResponse>"
+  "<wsnt:CurrentTime>%s</wsnt:CurrentTime>"
+  "<wsnt:TerminationTime>%s</wsnt:TerminationTime>"
+  "<wsnt:NotificationMessage>"
+  "<wsnt:Topic Dialect=\"http://www.onvif.org/ver10/tev/topicExpression/ConcreteSet\">tns1:Device/Trigger/Relay</wsnt:Topic>"
+  "<wsnt:Message>"
+  "<tt:Message UtcTime=\"%s\" PropertyOperation=\"Initialized\">"
+  "<tt:Source>"
+  "<tt:SimpleItem Name=\"RelayToken\" Value=\"RelayOutputToken_1\"/>"
+  "</tt:Source>"
+  "<tt:Data>"
+  "<tt:SimpleItem Name=\"LogicalState\" Value=\"active\"/>"
+  "</tt:Data>"
+  "</tt:Message>"
+  "</wsnt:Message>"
+  "</wsnt:NotificationMessage>"
+  "<wsnt:NotificationMessage>"
+  "<wsnt:Topic Dialect=\"http://www.onvif.org/ver10/tev/topicExpression/ConcreteSet\">tns1:Device/Trigger/DigitalInput</wsnt:Topic>"
+  "<wsnt:Message>"
+  "<tt:Message UtcTime=\"%s\" PropertyOperation=\"Initialized\">"
+  "<tt:Source>"
+  "<tt:SimpleItem Name=\"InputToken\" Value=\"DigitalInputToken_1\"/>"
+  "</tt:Source>"
+  "<tt:Data>"
+  "<tt:SimpleItem Name=\"LogicalState\" Value=\"true\"/>"
+  "</tt:Data>"
+  "</tt:Message>"
+  "</wsnt:Message>"
+  "</wsnt:NotificationMessage>"
+  "</tev:PullMessagesResponse>";
+
+const char* unsubscribe =
+  "<s:Header>"
+  "<wsa:MessageID>urn:uuid:%s</wsa:MessageID>"
+  "<wsa:To>http://www.w3.org/2005/08/addressing/anonymous</wsa:To>"
+  "<wsa:Action>http://www.onvif.org/ver10/events/wsdl/EventPortType/UnsubscribeResponse</wsa:Action>"
+  "</s:Header>"
+  "<s:Body>"
+  "<tev:UnsubscribeResponse/>";

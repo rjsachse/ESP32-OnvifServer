@@ -1,25 +1,38 @@
 #include "ESP32-OnvifServer.h"
 
-
-
-
 // Constructor with default values
 ONVIFServer::ONVIFServer()
-  : onvifHandle(NULL),
+  : name("Onvif_Server"),
+    manufacturer("XenoioneX"),
+    model("esp32s3"),
+    version("1.0"),
+    serial("0123456789"),
+    hardware("ESP32"),
+    location("Home"),
+    timezone("CET-1CEST,M3.5.0,M10.5.0/3"),
+    enableEvents(true),
+    enablePTZ(true),
+    enableAudio(true),
+    enableTwoWayAudio(true),
+    blockedIPCount(0), // Initialize to 0
+    onvifHandle(NULL),
     onvifBuffer(NULL),
     helloTimer(NULL),
-    blockedIPCount(2),
+    deviceUUID("00000000-0000-0000-0000-000000000000"),
+    ipAddress("0.0.0.0"),
     sock(-1)
 {
-  strncpy(onvifManufacturer, "XenoioneX", sizeof(onvifManufacturer));
-  strncpy(onvifModel, "esp32s3", sizeof(onvifModel));
-  memset(apMac, 0, sizeof(apMac));
-  memset(staMac, 0, sizeof(staMac));
-  strncpy(blockedIPs[0], "192.168.1.103", sizeof(blockedIPs[0]));
-  strncpy(blockedIPs[1], "192.168.1.112", sizeof(blockedIPs[1]));
-  memset(ipAddress, 0, sizeof(ipAddress));
-  memset(deviceUUID, 0, sizeof(deviceUUID));
+  
 }
+
+template<typename... Args>
+void ONVIFServer::setBlockedIPs(Args... ips) {
+  blockedIPCount = 0; // Reset count
+  setBlockedIPsHelper(ips...);
+}
+
+// Explicit instantiation of the template method
+template void ONVIFServer::setBlockedIPs<const char*, const char*, const char*>(const char*, const char*, const char*);
 
 ONVIFServer::~ONVIFServer() {
   stopOnvif();
@@ -27,8 +40,24 @@ ONVIFServer::~ONVIFServer() {
 
 esp_err_t ONVIFServer::onvifHandler(httpd_req_t *req) {
   uint8_t buf[100] = {0};
-  esp_err_t ret;
-  uint8_t content[1000] = {0};
+  esp_err_t ret = ESP_OK; // Initialize ret
+  uint8_t content[1500] = {0};
+
+  // Handle snapshot request
+  if (strcmp(req->uri, "/onvif/snapshot") == 0) {
+    camera_fb_t * fb = esp_camera_fb_get();
+    if (!fb) {
+      LOG_ERR("Camera capture failed");
+      httpd_resp_send_500(req);
+      return ESP_FAIL;
+    }
+
+    httpd_resp_set_type(req, "image/jpeg");
+    httpd_resp_send(req, (const char *)fb->buf, fb->len);
+    esp_camera_fb_return(fb);
+    return ESP_OK;
+  }
+
   int received = httpd_req_recv(req, (char *)content, sizeof(content) - 1);
   if (received <= 0) {
     if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
@@ -84,7 +113,8 @@ esp_err_t ONVIFServer::onvifHandler(httpd_req_t *req) {
 }
 
 void ONVIFServer::setup_onvif_server(httpd_handle_t server) {
-  httpd_uri_t onvifUri = {
+  // Handler for HTTP_POST method
+  httpd_uri_t onvifPostUri = {
     .uri = "/onvif/*",
     .method = HTTP_POST,
     .handler = [](httpd_req_t *req) -> esp_err_t {
@@ -94,7 +124,20 @@ void ONVIFServer::setup_onvif_server(httpd_handle_t server) {
     .user_ctx = this
   };
 
-  httpd_register_uri_handler(server, &onvifUri);
+  httpd_register_uri_handler(server, &onvifPostUri);
+
+  // Handler for HTTP_GET method
+  httpd_uri_t onvifGetUri = {
+    .uri = "/onvif/*",
+    .method = HTTP_GET,
+    .handler = [](httpd_req_t *req) -> esp_err_t {
+      ONVIFServer* server = reinterpret_cast<ONVIFServer*>(req->user_ctx);
+      return server->onvifHandler(req);
+    },
+    .user_ctx = this
+  };
+
+  httpd_register_uri_handler(server, &onvifGetUri);
 }
 
 void ONVIFServer::startOnvif() {
@@ -144,6 +187,10 @@ void ONVIFServer::startOnvif() {
     LOG_ERR("Joining multicast group failed: errno %d", errno);
     close(sock);
   }
+
+  // configTime(0, 0, "pool.ntp.org"); // Set the NTP server
+  // setenv("TZ", timezone, 1); // Set the timezone
+  // tzset(); // Apply the timezone
 
   esp_timer_create_args_t timerArgs = {
     .callback = &ONVIFServer::sendHelloWrapper,

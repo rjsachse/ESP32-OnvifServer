@@ -30,8 +30,10 @@
 // ===========================
 // Enter your WiFi credentials
 // ===========================
-const char *ssid = "PrettyFlyForWifi";
-const char *password = "Mynetwork13!";
+const char *ssid = "WiFi-E0C99C";
+const char *password = "11444305";
+// const char *ssid = "PrettyFlyForWifi";
+// const char *password = "Mynetwork13!";
 
 // RTSPServer instance
 RTSPServer rtspServer;
@@ -266,18 +268,18 @@ void printDeviceInfo() {
   // Print device information
   Serial.println("");
   Serial.println("==== Device Information ====");
-  Serial.printf("ESP32 Chip ID: %u\n", ESP.getEfuseMac());
-  Serial.printf("Flash Chip Size: %s\n", fmtSize(ESP.getFlashChipSize()));
+  Serial.printf("ESP32 Chip ID: %llu\n", ESP.getEfuseMac());
+  Serial.printf("Flash Chip Size: %s\n", fmtSize(ESP.getFlashChipSize()).c_str());
   if (psramFound()) {
-    Serial.printf("PSRAM Size: %s\n", fmtSize(ESP.getPsramSize()));
+    Serial.printf("PSRAM Size: %s\n", fmtSize(ESP.getPsramSize()).c_str());
   } else {
     Serial.println("No PSRAM is found");
   }
   Serial.println("");
   // Print sketch information
   Serial.println("==== Sketch Information ====");
-  Serial.printf("Sketch Size: %s\n", fmtSize(ESP.getSketchSize()));
-  Serial.printf("Free Sketch Space: %s\n", fmtSize(ESP.getFreeSketchSpace()));
+  Serial.printf("Sketch Size: %s\n", fmtSize(ESP.getSketchSize()).c_str());
+  Serial.printf("Free Sketch Space: %s\n", fmtSize(ESP.getFreeSketchSpace()).c_str());
   Serial.printf("Sketch MD5: %s\n", ESP.getSketchMD5().c_str());
   Serial.println("");
   // Print task information
@@ -294,7 +296,7 @@ void printDeviceInfo() {
   // Print RTSP server information
   Serial.println("==== RTSP Server Information ====");
   Serial.printf("RTSP Port: %d\n", rtspServer.rtspPort);
-  Serial.printf("Sample Rate: %d\n", rtspServer.sampleRate);
+  Serial.printf("Sample Rate: %lu\n", rtspServer.sampleRate); // Correct format specifier
   Serial.printf("Transport Type: %d\n", rtspServer.transport);
   Serial.printf("Video Port: %d\n", rtspServer.rtpVideoPort);
   Serial.printf("Audio Port: %d\n", rtspServer.rtpAudioPort);
@@ -417,10 +419,12 @@ void setup() {
   httpd_handle_t server = NULL;
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.uri_match_fn = httpd_uri_match_wildcard;  // Enable wildcard matching
+  config.stack_size = 8192; // Increase stack size to 8192 bytes
   
   if (httpd_start(&server, &config) == ESP_OK) {
     // Setup the ONVIF server using the library
     onvifServer.setup_onvif_server(server);
+    onvifServer.setBlockedIPs("192.168.1.103", "192.168.1.112", "192.168.1.120");
     onvifServer.startOnvif();
   }
 }

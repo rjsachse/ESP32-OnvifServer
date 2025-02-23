@@ -1,4 +1,3 @@
-
 // Device Management
 const char* getDeviceInfo = 
   "<s:Body>"
@@ -10,15 +9,12 @@ const char* getDeviceInfo =
   "<tds:HardwareId>%s</tds:HardwareId>"
   "</tds:GetDeviceInformationResponse>";
 
-const char* getCapabilities = 
+const char* getCapabilitiesStart = 
   "<s:Body>"
   "<tds:GetCapabilitiesResponse>"
-  "<tds:Capabilities>"
-  // "<tt:Analytics>"
-  // "<tt:XAddr>http://%s/onvif/analytics_service</tt:XAddr>"
-  // "<tt:RuleSupport>true</tt:RuleSupport>"
-  // "<tt:AnalyticsModuleSupport>true</tt:AnalyticsModuleSupport>"
-  // "</tt:Analytics>"
+  "<tds:Capabilities>";
+
+const char* getCapabilitiesDevice = 
   "<tt:Device>"
   "<tt:XAddr>http://%s/onvif/device_service</tt:XAddr>"
   "<tt:Network>"
@@ -39,33 +35,6 @@ const char* getCapabilities =
   "<tt:FirmwareUpgrade>true</tt:FirmwareUpgrade>"
   "<tt:SupportedVersions>"
   "<tt:Major>23</tt:Major><tt:Minor>12</tt:Minor>"
-  "</tt:SupportedVersions>"
-  "<tt:SupportedVersions>"
-  "<tt:Major>23</tt:Major><tt:Minor>6</tt:Minor>"
-  "</tt:SupportedVersions>"
-  "<tt:SupportedVersions>"
-  "<tt:Major>22</tt:Major><tt:Minor>12</tt:Minor>"
-  "</tt:SupportedVersions>"
-  "<tt:SupportedVersions>"
-  "<tt:Major>22</tt:Major><tt:Minor>6</tt:Minor>"
-  "</tt:SupportedVersions>"
-  "<tt:SupportedVersions>"
-  "<tt:Major>21</tt:Major><tt:Minor>12</tt:Minor>"
-  "</tt:SupportedVersions>"
-  "<tt:SupportedVersions>"
-  "<tt:Major>21</tt:Major><tt:Minor>6</tt:Minor>"
-  "</tt:SupportedVersions>"
-  "<tt:SupportedVersions>"
-  "<tt:Major>20</tt:Major><tt:Minor>12</tt:Minor>"
-  "</tt:SupportedVersions>"
-  "<tt:SupportedVersions>"
-  "<tt:Major>20</tt:Major><tt:Minor>6</tt:Minor>"
-  "</tt:SupportedVersions>"
-  "<tt:SupportedVersions>"
-  "<tt:Major>19</tt:Major><tt:Minor>12</tt:Minor>"
-  "</tt:SupportedVersions>"
-  "<tt:SupportedVersions>"
-  "<tt:Major>2</tt:Major><tt:Minor>0</tt:Minor>"
   "</tt:SupportedVersions>"
   "<tt:Extension>"
   "<tt:HttpFirmwareUpgrade>true</tt:HttpFirmwareUpgrade>"
@@ -100,16 +69,22 @@ const char* getCapabilities =
   "</tt:Extension>"
   "</tt:Extension>"
   "</tt:Security>"
-  "</tt:Device>"
-  // "<tt:Events>"
-  // "<tt:XAddr>http://%s/onvif/event_service</tt:XAddr>"
-  // "<tt:WSSubscriptionPolicySupport>true</tt:WSSubscriptionPolicySupport>"
-  // "<tt:WSPullPointSupport>true</tt:WSPullPointSupport>"
-  // "<tt:WSPausableSubscriptionManagerInterfaceSupport>false</tt:WSPausableSubscriptionManagerInterfaceSupport>"
-  // "</tt:Events>"
+  "</tt:Device>";
+
+const char* getCapabilitiesEvents = 
+  "<tt:Events>"
+  "<tt:XAddr>http://%s/onvif/event_service</tt:XAddr>"
+  "<tt:WSSubscriptionPolicySupport>true</tt:WSSubscriptionPolicySupport>"
+  "<tt:WSPullPointSupport>true</tt:WSPullPointSupport>"
+  "<tt:WSPausableSubscriptionManagerInterfaceSupport>false</tt:WSPausableSubscriptionManagerInterfaceSupport>"
+  "</tt:Events>";
+
+const char* getCapabilitiesImaging = 
   "<tt:Imaging>"
   "<tt:XAddr>http://%s/onvif/image_service</tt:XAddr>"
-  "</tt:Imaging>"
+  "</tt:Imaging>";
+
+const char* getCapabilitiesMedia = 
   "<tt:Media>"
   "<tt:XAddr>http://%s/onvif/media_service</tt:XAddr>"
   "<tt:StreamingCapabilities>"
@@ -119,13 +94,12 @@ const char* getCapabilities =
   "</tt:StreamingCapabilities>"
   "<tt:Extension>"
   "<tt:ProfileCapabilities>"
-  "<tt:MaximumNumberOfProfiles>1</tt:MaximumNumberOfProfiles>"
+  "<tt:MaximumNumberOfProfiles>10</tt:MaximumNumberOfProfiles>"
   "</tt:ProfileCapabilities>"
   "</tt:Extension>"
-  "</tt:Media>"
-  "<tt:PTZ>"
-  "<tt:XAddr>http://%s/onvif/ptz_service</tt:XAddr>"
-  "</tt:PTZ>"
+  "</tt:Media>";
+
+const char* getCapabilitiesExension = 
   "<tt:Extension>"
   "<tt:DeviceIO>"
   "<tt:XAddr>http://%s/onvif/deviceio_service</tt:XAddr>"
@@ -158,7 +132,14 @@ const char* getCapabilities =
   // "<tt:SupportedReceivers>10</tt:SupportedReceivers>"
   // "<tt:MaximumRTSPURILength>256</tt:MaximumRTSPURILength>"
   // "</tt:Receiver>"
-  "</tt:Extension>"
+  "</tt:Extension>";
+
+const char* getCapabilitiesPTZ = 
+  "<tt:PTZ>"
+  "<tt:XAddr>http://%s/onvif/ptz_service</tt:XAddr>"
+  "</tt:PTZ>";
+
+const char* getCapabilitiesEnd = 
   "</tds:Capabilities>"
   "</tds:GetCapabilitiesResponse>";
 
@@ -173,14 +154,14 @@ const char* getServices =
   "<tt:Minor>12</tt:Minor>"
   "</tds:Version>"
   "</tds:Service>"
-  // "<tds:Service>"
-  // "<tds:Namespace>http://www.onvif.org/ver10/events/wsdl</tds:Namespace>"
-  // "<tds:XAddr>http://%s/onvif/event_service</tds:XAddr>"
-  // "<tds:Version>"
-  // "<tt:Major>22</tt:Major>"
-  // "<tt:Minor>6</tt:Minor>"
-  // "</tds:Version>"
-  // "</tds:Service>"
+  "<tds:Service>"
+  "<tds:Namespace>http://www.onvif.org/ver10/events/wsdl</tds:Namespace>"
+  "<tds:XAddr>http://%s/onvif/event_service</tds:XAddr>"
+  "<tds:Version>"
+  "<tt:Major>22</tt:Major>"
+  "<tt:Minor>6</tt:Minor>"
+  "</tds:Version>"
+  "</tds:Service>"
   "<tds:Service>"
   "<tds:Namespace>http://www.onvif.org/ver20/media/wsdl</tds:Namespace>"
   "<tds:XAddr>http://%s/onvif/media2_service</tds:XAddr>"
@@ -313,6 +294,13 @@ const char* getServices =
   // "</tds:Service>"
   "</tds:GetServicesResponse>";
 
+const char* getEndpointReference = 
+  "<s:Body>"
+  "<tds:GetEndpointReferenceResponse>"
+  "<tds:EndpointReference>"
+  "<wsa:Address>urn:uuid:%s</wsa:Address>"
+  "</tds:EndpointReference>"
+  "</tds:GetEndpointReferenceResponse>";
 
 const char* getScopes =
   "<s:Body>"
@@ -359,15 +347,15 @@ const char* getScopes =
   // "</tds:Scopes>"
   "<tds:Scopes>"
   "<tt:ScopeDef>Configurable</tt:ScopeDef>"
-  "<tt:ScopeItem>onvif://www.onvif.org/location/Home</tt:ScopeItem>"
+  "<tt:ScopeItem>onvif://www.onvif.org/location/%s</tt:ScopeItem>"
   "</tds:Scopes>"
   "<tds:Scopes>"
   "<tt:ScopeDef>Configurable</tt:ScopeDef>"
-  "<tt:ScopeItem>onvif://www.onvif.org/name/IP-Camera</tt:ScopeItem>"
+  "<tt:ScopeItem>onvif://www.onvif.org/name/%s</tt:ScopeItem>"
   "</tds:Scopes>"
   "<tds:Scopes>"
   "<tt:ScopeDef>Configurable</tt:ScopeDef>"
-  "<tt:ScopeItem>onvif://www.onvif.org/hardware/HI3518C</tt:ScopeItem>"
+  "<tt:ScopeItem>onvif://www.onvif.org/hardware/%s</tt:ScopeItem>"
   "</tds:Scopes>"
   "</tds:GetScopesResponse>";
 
@@ -391,7 +379,6 @@ const char* getNetworkInterfaces =
   "<tt:Info>"
   "<tt:Name>WiFi</tt:Name>"
   "<tt:HwAddress>%s</tt:HwAddress>"
-  //"<tt:HwAddress>38-00-25-C7-77-A2</tt:HwAddress>"
   "<tt:MTU>1500</tt:MTU>"
   "</tt:Info>"
   "<tt:IPv4>"
@@ -414,7 +401,7 @@ const char* getDNS =
   "<tt:FromDHCP>false</tt:FromDHCP>"
   "<tt:DNSManual>"
   "<tt:Type>IPv4</tt:Type>"
-  "<tt:IPv4Address>192.168.1.1</tt:IPv4Address>" // need to change to pass router address
+  "<tt:IPv4Address>%s</tt:IPv4Address>"
   "</tt:DNSManual>"
   "</tds:DNSInformation>"
   "</tds:GetDNSResponse>";
@@ -423,21 +410,21 @@ const char* getSystemDateAndTime =
   "<s:Body>"
   "<tds:GetSystemDateAndTimeResponse>"
   "<tds:SystemDateAndTime>"
-  "<tds:DateTimeType>NTP</tds:DateTimeType>"
-  "<tds:DaylightSavings>false</tds:DaylightSavings>"
+  "<tds:DateTimeType>%s</tds:DateTimeType>"
+  "<tds:DaylightSavings>%s</tds:DaylightSavings>"
   "<tds:TimeZone>"
-  "<tds:TZ>CET-1CEST,M3.5.0,M10.5.0/3</tds:TZ>"
+  "<tds:TZ>%s</tds:TZ>"
   "</tds:TimeZone>"
   "<tds:UTCDateTime>"
   "<tds:Time>"
-  "<tds:Hour>10</tds:Hour>"
-  "<tds:Minute>0</tds:Minute>"
-  "<tds:Second>0</tds:Second>"
+  "<tds:Hour>%02d</tds:Hour>"
+  "<tds:Minute>%02d</tds:Minute>"
+  "<tds:Second>%02d</tds:Second>"
   "</tds:Time>"
   "<tds:Date>"
-  "<tds:Year>2024</tds:Year>"
-  "<tds:Month>10</tds:Month>"
-  "<tds:Day>5</tds:Day>"
+  "<tds:Year>%04d</tds:Year>"
+  "<tds:Month>%02d</tds:Month>"
+  "<tds:Day>%02d</tds:Day>"
   "</tds:Date>"
   "</tds:UTCDateTime>"
   "</tds:SystemDateAndTime>"

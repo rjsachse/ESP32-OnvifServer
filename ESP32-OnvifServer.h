@@ -9,9 +9,6 @@
 
 #define ONVIF_PORT 3702
 #define ONVIF_IP "239.255.255.250"
-#define APP_NAME "Onvif Server"
-#define APP_VER "1.0.0"
-#define CAM_BOARD "ESP32"
 #define ONVIF_HELLO_INTERVAL 30
 #define ONVIF_BUFFER_SIZE (1024 * 8)
 #define ONVIF_STACK_SIZE (1024 * 8)
@@ -28,23 +25,37 @@ public:
   ~ONVIFServer();
 
   // Public member variables
-  char onvifManufacturer[16];
-  char onvifModel[16];
-  char apMac[18];
-  char staMac[18];
-  char blockedIPs[2][16];
-  size_t blockedIPCount;
+  char name[32];
+  char manufacturer[16];
+  char model[16];
+  char version[6];
+  char serial[32];
+  char hardware[32];
+  char location[32];
+  char timezone[32];
+  bool enableEvents;
+  bool enablePTZ;
+  bool enableAudio;
+  bool enableTwoWayAudio;
+  
+  char blockedIPs[10][16]; // Increase size to allow more IPs
 
   esp_err_t onvifHandler(httpd_req_t *req);
   void setup_onvif_server(httpd_handle_t server);
   void startOnvif();
   void stopOnvif();
 
+  template<typename... Args>
+  void setBlockedIPs(Args... ips); // Renamed method
+
 private:
+  size_t blockedIPCount;
   void extractMessageID(const char* packetData, char* messageID, size_t messageIDSize);
   void generateUUID(char* uuid, size_t uuidSize);
   void generateDeviceUUID(char* uuid, size_t uuidSize);
   void populateOnvifResponse(const char* mainHeader, const char* templateStr, ...);
+  char* buildPart(const char* format, ...);
+  void buildDynamicResponse(const char* mainHeader, ...);
   void sendMatch(const char* messageID, const char* relatesToID, const char* action);
   void sendMessage(const char* messageType);
   void parseAndApplySettings(const char* requestBody);
@@ -63,6 +74,20 @@ private:
   char ipAddress[16];
   int sock;
   struct sockaddr_in addr;
+
+  template<typename T>
+  void setBlockedIPsHelper(T ip) {
+    if (blockedIPCount < 10) {
+      strncpy(blockedIPs[blockedIPCount], ip, sizeof(blockedIPs[blockedIPCount]));
+      blockedIPCount++;
+    }
+  }
+
+  template<typename T, typename... Args>
+  void setBlockedIPsHelper(T ip, Args... ips) {
+    setBlockedIPsHelper(ip);
+    setBlockedIPsHelper(ips...);
+  }
 };
 
 #endif // ESP32_ONVIF_SERVER_H

@@ -1,18 +1,6 @@
 #ifndef ONVIFHEADERS_H
 #define ONVIFHEADERS_H
 
-const char* deviceHeader = 
-  "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-  "<s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\" "
-  "xmlns:tt=\"http://www.onvif.org/ver10/schema\" "
-  "xmlns:tds=\"http://www.onvif.org/ver10/device/wsdl\">";
-
-const char* mediaHeader = 
-  "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-  "<s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\" "
-  "xmlns:tt=\"http://www.onvif.org/ver10/schema\" "
-  "xmlns:trt=\"http://www.onvif.org/ver10/media/wsdl\">";
-
 const char* discoverNS = 
   "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
   "<s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\" "
@@ -23,6 +11,25 @@ const char* discoverNS =
   "xmlns:wsa5=\"http://www.w3.org/2005/08/addressing\" "
   "xmlns:d=\"http://schemas.xmlsoap.org/ws/2005/04/discovery\" "
   "xmlns:dn=\"http://www.onvif.org/ver10/network/wsdl\">";
+
+const char* deviceHeader = 
+  "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+  "<s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\" "
+  "xmlns:tt=\"http://www.onvif.org/ver10/schema\" "
+  "xmlns:tds=\"http://www.onvif.org/ver10/device/wsdl\" "
+  "xmlns:tr2=\"http://www.onvif.org/ver20/media/wsdl\">";
+
+const char* mediaHeader = 
+  "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+  "<s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\" "
+  "xmlns:tt=\"http://www.onvif.org/ver10/schema\" "
+  "xmlns:trt=\"http://www.onvif.org/ver10/media/wsdl\">";
+
+const char* ptzHeader = 
+  "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+  "<s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\" "
+  "xmlns:tt=\"http://www.onvif.org/ver10/schema\" "
+  "xmlns:tptz=\"http://www.onvif.org/ver20/ptz/wsdl\">";
 
 const char* allHeader =
   "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"

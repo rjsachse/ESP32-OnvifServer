@@ -11,6 +11,7 @@
 #define ONVIF_IP "239.255.255.250"
 #define ONVIF_HELLO_INTERVAL 30
 #define ONVIF_BUFFER_SIZE (1024 * 8)
+#define ONVIF_PARTS_BUFFER_SIZE (1024 * 2)
 #define ONVIF_STACK_SIZE (1024 * 8)
 #define ONVIF_PRI 1
 
@@ -54,8 +55,10 @@ private:
   void generateUUID(char* uuid, size_t uuidSize);
   void generateDeviceUUID(char* uuid, size_t uuidSize);
   void populateOnvifResponse(const char* mainHeader, const char* templateStr, ...);
-  char* buildPart(const char* format, ...);
-  void buildDynamicResponse(const char* mainHeader, ...);
+  char* populateSection(const char* format, ...);
+  void buildOnvifResponse(const std::vector<const char*>& parts);
+  template<typename... section>
+  void buildOnvifResponse(const char* mainHeader, section... args);
   void sendMatch(const char* messageID, const char* relatesToID, const char* action);
   void sendMessage(const char* messageType);
   void parseAndApplySettings(const char* requestBody);
@@ -69,6 +72,7 @@ private:
 
   TaskHandle_t onvifHandle;
   uint8_t* onvifBuffer;
+  uint8_t* onvifPartBuffer;
   esp_timer_handle_t helloTimer;
   char deviceUUID[37];
   char ipAddress[16];

@@ -30,10 +30,10 @@
 // ===========================
 // Enter your WiFi credentials
 // ===========================
-const char *ssid = "WiFi-E0C99C";
-const char *password = "11444305";
-// const char *ssid = "PrettyFlyForWifi";
-// const char *password = "Mynetwork13!";
+//const char *ssid = "WiFi-E0C99C";
+//const char *password = "11444305";
+ const char *ssid = "PrettyFlyForWifi";
+ const char *password = "Mynetwork13!";
 
 // RTSPServer instance
 RTSPServer rtspServer;

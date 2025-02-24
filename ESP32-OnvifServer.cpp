@@ -17,6 +17,7 @@ ONVIFServer::ONVIFServer()
     blockedIPCount(0), // Initialize to 0
     onvifHandle(NULL),
     onvifBuffer(NULL),
+    onvifPartBuffer(NULL),
     helloTimer(NULL),
     deviceUUID("00000000-0000-0000-0000-000000000000"),
     ipAddress("0.0.0.0"),
@@ -149,6 +150,10 @@ void ONVIFServer::startOnvif() {
     if (onvifBuffer == NULL) {
       LOG_ERR("ONVIF Buffer allocation failed!");
     }
+    onvifPartBuffer = (uint8_t*)ps_malloc(ONVIF_PARTS_BUFFER_SIZE);  // Dynamically allocate memory
+    if (onvifPartBuffer == NULL) {
+      LOG_ERR("Memory allocation failed!");
+    }
   } else {
     LOG_ERR("ONVIF Buffer allocation failed! PSRAM not found");
   }
@@ -157,6 +162,13 @@ void ONVIFServer::startOnvif() {
     onvifBuffer = (uint8_t*)malloc(ONVIF_BUFFER_SIZE);
     if (onvifBuffer == NULL) {
       LOG_ERR("ONVIF Buffer allocation failed in regular RAM!");
+    }
+  }
+  
+  if (onvifPartBuffer == NULL) {
+    onvifPartBuffer = (uint8_t*)malloc(ONVIF_PARTS_BUFFER_SIZE);  // Dynamically allocate memory
+    if (onvifPartBuffer == NULL) {
+      LOG_ERR("ONVIF Part Buffer allocation failed in regular RAM!");
     }
   }
 
@@ -231,7 +243,12 @@ void ONVIFServer::stopOnvif() {
   if (onvifBuffer != NULL) {
     free(onvifBuffer);
     onvifBuffer = NULL;
+  }  
+  if (onvifPartBuffer != NULL) {
+    free(onvifPartBuffer);
+    onvifPartBuffer = NULL;
   }
+  
 }
 
 bool ONVIFServer::isBlocked(const char* ip) {

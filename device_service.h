@@ -105,8 +105,8 @@ const char* getCapabilitiesExension =
   "<tt:XAddr>http://%s/onvif/deviceio_service</tt:XAddr>"
   "<tt:VideoSources>1</tt:VideoSources>"       // One camera
   "<tt:VideoOutputs>0</tt:VideoOutputs>"       // No video outputs
-  "<tt:AudioSources>1</tt:AudioSources>"       // One microphone
-  "<tt:AudioOutputs>1</tt:AudioOutputs>"       // One amplifier speaker
+  "<tt:AudioSources>%s</tt:AudioSources>"       // One microphone
+  "<tt:AudioOutputs>%s</tt:AudioOutputs>"       // One amplifier speaker
   "<tt:RelayOutputs>0</tt:RelayOutputs>"       // No relay outputs
   "</tt:DeviceIO>"
   // "<tt:Recording>"
@@ -143,9 +143,13 @@ const char* getCapabilitiesEnd =
   "</tds:Capabilities>"
   "</tds:GetCapabilitiesResponse>";
 
-const char* getServices = 
+
+
+const char* getServicesStart = 
   "<s:Body>"
-  "<tds:GetServicesResponse>"
+  "<tds:GetServicesResponse>";
+
+const char* getServicesDevice= 
   "<tds:Service>"
   "<tds:Namespace>http://www.onvif.org/ver10/device/wsdl</tds:Namespace>"
   "<tds:XAddr>http://%s/onvif/device_service</tds:XAddr>"
@@ -153,7 +157,9 @@ const char* getServices =
   "<tt:Major>23</tt:Major>"
   "<tt:Minor>12</tt:Minor>"
   "</tds:Version>"
-  "</tds:Service>"
+  "</tds:Service>";
+  
+const char* getServicesEvent = 
   "<tds:Service>"
   "<tds:Namespace>http://www.onvif.org/ver10/events/wsdl</tds:Namespace>"
   "<tds:XAddr>http://%s/onvif/event_service</tds:XAddr>"
@@ -161,7 +167,9 @@ const char* getServices =
   "<tt:Major>22</tt:Major>"
   "<tt:Minor>6</tt:Minor>"
   "</tds:Version>"
-  "</tds:Service>"
+  "</tds:Service>";
+
+const char* getServicesMedia2 = 
   "<tds:Service>"
   "<tds:Namespace>http://www.onvif.org/ver20/media/wsdl</tds:Namespace>"
   "<tds:XAddr>http://%s/onvif/media2_service</tds:XAddr>"
@@ -169,7 +177,9 @@ const char* getServices =
   "<tt:Major>23</tt:Major>"
   "<tt:Minor>6</tt:Minor>"
   "</tds:Version>"
-  "</tds:Service>"
+  "</tds:Service>";
+
+const char* getServicesMedia = 
   "<tds:Service>"
   "<tds:Namespace>http://www.onvif.org/ver10/media/wsdl</tds:Namespace>"
   "<tds:XAddr>http://%s/onvif/media_service</tds:XAddr>"
@@ -177,7 +187,9 @@ const char* getServices =
   "<tt:Major>22</tt:Major>"
   "<tt:Minor>12</tt:Minor>"
   "</tds:Version>"
-  "</tds:Service>"
+  "</tds:Service>";
+
+const char* getServicesPTZ = 
   "<tds:Service>"
   "<tds:Namespace>http://www.onvif.org/ver20/ptz/wsdl</tds:Namespace>"
   "<tds:XAddr>http://%s/onvif/ptz_service</tds:XAddr>"
@@ -185,7 +197,9 @@ const char* getServices =
   "<tt:Major>23</tt:Major>"
   "<tt:Minor>6</tt:Minor>"
   "</tds:Version>"
-  "</tds:Service>"
+  "</tds:Service>";
+
+const char* getServicesImage = 
   "<tds:Service>"
   "<tds:Namespace>http://www.onvif.org/ver20/imaging/wsdl</tds:Namespace>"
   "<tds:XAddr>http://%s/onvif/image_service</tds:XAddr>"
@@ -292,7 +306,12 @@ const char* getServices =
   // "<tt:Major>18</tt:Major><tt:Minor>12</tt:Minor>"
   // "</tds:Version>"
   // "</tds:Service>"
+  ;
+
+const char* getServicesEnd = 
   "</tds:GetServicesResponse>";
+
+
 
 const char* getEndpointReference = 
   "<s:Body>"

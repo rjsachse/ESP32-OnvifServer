@@ -9,6 +9,9 @@
 #include "imaging_service.h"
 #include "ptz_service.h"
 
+
+//#include <vector>
+
 void ONVIFServer::extractMessageID(const char* packetData, char* messageID, size_t messageIDSize) {
   const char* startTag = "MessageID";
   const char* startPtr = strstr(packetData, startTag);
@@ -87,40 +90,37 @@ void ONVIFServer::populateOnvifResponse(const char* mainHeader, const char* temp
   strncat((char*)onvifBuffer, footer, ONVIF_BUFFER_SIZE - strlen((char*)onvifBuffer) - 1);
 }
 
-char* ONVIFServer::buildPart(const char* format, ...) {
-  char* partBuffer = (char*)malloc(2048);  // Dynamically allocate memory
-  if (partBuffer == NULL) {
-    LOG_ERR("Memory allocation failed!");
-    return NULL;
-  }
+char* ONVIFServer::populateSection(const char* format, ...) {
   va_list args;
   va_start(args, format);
-  vsnprintf(partBuffer, 2048, format, args);
+  vsnprintf((char*)onvifPartBuffer, ONVIF_PARTS_BUFFER_SIZE, format, args);
   va_end(args);
-  return partBuffer;
+  return (char*)onvifPartBuffer;
 }
 
 
-void ONVIFServer::buildDynamicResponse(const char* mainStr, ...) {
+void ONVIFServer::buildOnvifResponse(const std::vector<const char*>& parts) {
   if (onvifBuffer == NULL) {
     LOG_ERR("ONVIF Buffer not allocated! Unable to create response.");
     return;
   }
 
-  // Initialize onvifBuffer with mainStr
-  snprintf((char*)onvifBuffer, ONVIF_BUFFER_SIZE, "%s", mainStr);
+  // Initialize onvifBuffer with the first part
+  snprintf((char*)onvifBuffer, ONVIF_BUFFER_SIZE, "%s", parts[0]);
 
-  va_list args;
-  va_start(args, mainStr);
-  const char* arg;
-  while ((arg = va_arg(args, const char*)) != NULL) {
-    strncat((char*)onvifBuffer, arg, ONVIF_BUFFER_SIZE - strlen((char*)onvifBuffer) - 1);
+  for (size_t i = 1; i < parts.size(); ++i) {
+    strncat((char*)onvifBuffer, parts[i], ONVIF_BUFFER_SIZE - strlen((char*)onvifBuffer) - 1);
   }
-  va_end(args);
+
   strncat((char*)onvifBuffer, footer, ONVIF_BUFFER_SIZE - strlen((char*)onvifBuffer) - 1);
-  free((void*)arg); // Free the allocated memory after appending
+
 }
 
+template<typename... section>
+void ONVIFServer::buildOnvifResponse(const char* mainHeader, section... args) {
+  std::vector<const char*> parts = { mainHeader, args... };
+  buildOnvifResponse(parts);
+}
 
 void ONVIFServer::sendMatch(const char* messageID, const char* relatesToID, const char* action) {
   const char* fullAction;
@@ -132,18 +132,26 @@ void ONVIFServer::sendMatch(const char* messageID, const char* relatesToID, cons
     LOG_ERR("Wrong action passed!");
     return;
   }
-  populateOnvifResponse(discoverNS, onvifMatch, messageID, relatesToID, fullAction,
+  buildOnvifResponse(discoverNS, populateSection(onvifMatch, messageID, relatesToID, fullAction,
                         (strcmp(action, "probe") == 0 ? "ProbeMatches" : "ResolveMatches"),
                         (strcmp(action, "probe") == 0 ? "ProbeMatch" : "ResolveMatch"),
                         deviceUUID, location, name, hardware, ipAddress,
                         (strcmp(action, "probe") == 0 ? "ProbeMatch" : "ResolveMatch"),
-                        (strcmp(action, "probe") == 0 ? "ProbeMatches" : "ResolveMatches"));
+                        (strcmp(action, "probe") == 0 ? "ProbeMatches" : "ResolveMatches"))
+                        );
+//  populateOnvifResponse(discoverNS, onvifMatch, messageID, relatesToID, fullAction,
+//                        (strcmp(action, "probe") == 0 ? "ProbeMatches" : "ResolveMatches"),
+//                        (strcmp(action, "probe") == 0 ? "ProbeMatch" : "ResolveMatch"),
+//                        deviceUUID, location, name, hardware, ipAddress,
+//                        (strcmp(action, "probe") == 0 ? "ProbeMatch" : "ResolveMatch"),
+//                        (strcmp(action, "probe") == 0 ? "ProbeMatches" : "ResolveMatches"));
 }
 
 void ONVIFServer::sendMessage(const char* messageType) {
   char messageID[37];
   generateUUID(messageID, sizeof(messageID));
-  populateOnvifResponse(discoverNS, messageType, messageID, deviceUUID, location, name, hardware, ipAddress);
+  buildOnvifResponse(discoverNS, populateSection(messageType, messageID, deviceUUID, location, name, hardware, ipAddress));
+  //populateOnvifResponse(discoverNS, messageType, messageID, deviceUUID, location, name, hardware, ipAddress);
   sendto(sock, (char*)onvifBuffer, strlen((char*)onvifBuffer), 0, (const struct sockaddr*)&addr, sizeof(addr));
 }
 
@@ -204,21 +212,30 @@ void ONVIFServer::onvifServiceResponse(const char* action, const char* uri, cons
   if (strstr(uri, "/device_service")) {
     // Device services
     if (strstr(action, "GetDeviceInformation")) {
-      populateOnvifResponse(maxHeader, getDeviceInfo, manufacturer, model, version, serial, hardware);
+      //populateOnvifResponse(maxHeader, getDeviceInfo, manufacturer, model, version, serial, hardware);
+      buildOnvifResponse(maxHeader, populateSection(getDeviceInfo, manufacturer, model, version, serial, hardware));
     } else if (strstr(action, "GetCapabilities")) {
-      buildDynamicResponse(maxHeader, getCapabilitiesStart,
-        buildPart(getCapabilitiesDevice, ipAddress),
-        enableEvents ? buildPart(getCapabilitiesEvents, ipAddress) : nullptr,
-        buildPart(getCapabilitiesImaging, ipAddress),
-        buildPart(getCapabilitiesMedia, ipAddress),
-        buildPart(getCapabilitiesMedia, ipAddress),
-        buildPart(getCapabilitiesExension, ipAddress),
-        enablePTZ ? buildPart(getCapabilitiesPTZ, ipAddress) : nullptr,
-        getCapabilitiesEnd, NULL
+      buildOnvifResponse(maxHeader, getCapabilitiesStart,
+        populateSection(getCapabilitiesDevice, ipAddress),
+        enableEvents ? populateSection(getCapabilitiesEvents, ipAddress) : "",
+        populateSection(getCapabilitiesImaging, ipAddress),
+        populateSection(getCapabilitiesMedia, ipAddress),
+        populateSection(getCapabilitiesExension, ipAddress, enableAudio ? "1" : "0", enableTwoWayAudio ? "1" : "0"),
+        enablePTZ ? populateSection(getCapabilitiesPTZ, ipAddress) : "",
+        getCapabilitiesEnd
       );
 
     } else if (strstr(action, "GetServices")) {
-      populateOnvifResponse(maxHeader, getServices, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress);
+      buildOnvifResponse(maxHeader, getServicesStart,
+        populateSection(getServicesDevice, ipAddress),
+        enableEvents ? populateSection(getServicesEvent, ipAddress) : "",
+        enableTwoWayAudio ? populateSection(getServicesMedia2, ipAddress) : "",
+        populateSection(getServicesMedia, ipAddress),
+        enablePTZ ? populateSection(getServicesPTZ, ipAddress) : "",
+        populateSection(getServicesImage, ipAddress),
+        getServicesEnd
+      );
+      //populateOnvifResponse(maxHeader, getServices, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress);
     } else if (strstr(action, "GetScopes")) {
       populateOnvifResponse(maxHeader, getScopes, location, name, hardware);
     } else if (strstr(action, "GetZeroConfiguration")) {

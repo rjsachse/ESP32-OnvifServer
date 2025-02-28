@@ -237,19 +237,25 @@ void ONVIFServer::onvifServiceResponse(const char* action, const char* uri, cons
       );
       //populateOnvifResponse(maxHeader, getServices, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress);
     } else if (strstr(action, "GetScopes")) {
-      populateOnvifResponse(maxHeader, getScopes, location, name, hardware);
+      buildOnvifResponse(maxHeader, getScopesStart,
+        enableAudio ? getScopesAudio : "",
+        getScopesVideo,
+        enablePTZ ? getScopesPTZ : "",
+        getScopesProS,
+        enableTwoWayAudio ? getScopesProT : "",
+        populateSection(getScopesInfo, location, name, hardware));
     } else if (strstr(action, "GetZeroConfiguration")) {
-      populateOnvifResponse(maxHeader, getZeroConfig, ipAddress);
+      buildOnvifResponse(maxHeader, populateSection(getZeroConfig, ipAddress));
     } else if (strstr(action, "GetNetworkInterfaces")) {
       char macAddress[18];
       snprintf(macAddress, sizeof(macAddress), "%s", WiFi.macAddress().c_str());
-      populateOnvifResponse(maxHeader, getNetworkInterfaces, macAddress, ipAddress);
+      buildOnvifResponse(maxHeader, populateSection(getNetworkInterfaces, macAddress, ipAddress));
     } else if (strstr(action, "GetDNS")) {
       char gatewayIP[16];
       snprintf(gatewayIP, sizeof(gatewayIP), "%u.%u.%u.%u", 
                WiFi.gatewayIP()[0], WiFi.gatewayIP()[1], 
                WiFi.gatewayIP()[2], WiFi.gatewayIP()[3]);
-      populateOnvifResponse(deviceHeader, getDNS, gatewayIP);
+      buildOnvifResponse(maxHeader, populateSection(getDNS, gatewayIP));
     } else if (strstr(action, "GetSystemDateAndTime")) {
       time_t now;
       struct tm timeinfo;
@@ -259,12 +265,12 @@ void ONVIFServer::onvifServiceResponse(const char* action, const char* uri, cons
       const char* dateTimeType = (sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED) ? "NTP" : "Manual";
       const char* daylightSavings = timeinfo.tm_isdst > 0 ? "true" : "false";
 
-      populateOnvifResponse(maxHeader, getSystemDateAndTime,
+      buildOnvifResponse(maxHeader, populateSection(getSystemDateAndTime,
                             dateTimeType, daylightSavings, timezone,
                             timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec,
-                            timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday);
+                            timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday));
     } else if (strstr(action, "GetEndpointReference")) {
-      populateOnvifResponse(maxHeader, getEndpointReference, deviceUUID);
+      buildOnvifResponse(maxHeader, populateSection(getEndpointReference, deviceUUID));
     } else {
       snprintf((char*)onvifBuffer, ONVIF_BUFFER_SIZE, "UNKNOWN");
     }

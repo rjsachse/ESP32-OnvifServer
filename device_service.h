@@ -144,7 +144,7 @@ const char* getCapabilitiesEnd =
   "</tds:GetCapabilitiesResponse>";
 
 
-
+// Services
 const char* getServicesStart = 
   "<s:Body>"
   "<tds:GetServicesResponse>";
@@ -321,21 +321,30 @@ const char* getEndpointReference =
   "</tds:EndpointReference>"
   "</tds:GetEndpointReferenceResponse>";
 
-const char* getScopes =
+//Scopes
+const char* getScopesStart =
   "<s:Body>"
-  "<tds:GetScopesResponse>"
+  "<tds:GetScopesResponse>";
+
+const char* getScopesAudio =
   "<tds:Scopes>"
   "<tt:ScopeDef>Fixed</tt:ScopeDef>"
   "<tt:ScopeItem>onvif://www.onvif.org/type/audio_encoder</tt:ScopeItem>"
-  "</tds:Scopes>"
+  "</tds:Scopes>";
+
+const char* getScopesVideo =
   "<tds:Scopes>"
   "<tt:ScopeDef>Fixed</tt:ScopeDef>"
   "<tt:ScopeItem>onvif://www.onvif.org/type/video_encoder</tt:ScopeItem>"
-  "</tds:Scopes>"
+  "</tds:Scopes>";
+
+const char* getScopesPTZ =
   "<tds:Scopes>"
   "<tt:ScopeDef>Fixed</tt:ScopeDef>"
   "<tt:ScopeItem>onvif://www.onvif.org/type/ptz</tt:ScopeItem>"
-  "</tds:Scopes>"
+  "</tds:Scopes>";
+
+const char* getScopesProS =
   "<tds:Scopes>"
   "<tt:ScopeDef>Fixed</tt:ScopeDef>"
   "<tt:ScopeItem>onvif://www.onvif.org/Profile/Streaming</tt:ScopeItem>"
@@ -343,11 +352,13 @@ const char* getScopes =
   "<tds:Scopes>"
   "<tt:ScopeDef>Fixed</tt:ScopeDef>"
   "<tt:ScopeItem>onvif://www.onvif.org/Profile/S</tt:ScopeItem>"
-  "</tds:Scopes>"
+  "</tds:Scopes>";
+  
+const char* getScopesProT =
   "<tds:Scopes>"
   "<tt:ScopeDef>Fixed</tt:ScopeDef>"
   "<tt:ScopeItem>onvif://www.onvif.org/Profile/T</tt:ScopeItem>"
-  "</tds:Scopes>"
+  "</tds:Scopes>";
   // "<tds:Scopes>"
   // "<tt:ScopeDef>Fixed</tt:ScopeDef>"
   // "<tt:ScopeItem>onvif://www.onvif.org/Profile/G</tt:ScopeItem>"
@@ -364,6 +375,8 @@ const char* getScopes =
   // "<tt:ScopeDef>Fixed</tt:ScopeDef>"
   // "<tt:ScopeItem>onvif://www.onvif.org/Profile/M</tt:ScopeItem>"
   // "</tds:Scopes>"
+
+const char* getScopesInfo =
   "<tds:Scopes>"
   "<tt:ScopeDef>Configurable</tt:ScopeDef>"
   "<tt:ScopeItem>onvif://www.onvif.org/location/%s</tt:ScopeItem>"
@@ -375,8 +388,11 @@ const char* getScopes =
   "<tds:Scopes>"
   "<tt:ScopeDef>Configurable</tt:ScopeDef>"
   "<tt:ScopeItem>onvif://www.onvif.org/hardware/%s</tt:ScopeItem>"
-  "</tds:Scopes>"
+  "</tds:Scopes>";
+
+const char* getScopesEnd =
   "</tds:GetScopesResponse>";
+
 
 const char* getZeroConfig = 
   "<s:Body>"

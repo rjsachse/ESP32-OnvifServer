@@ -9,8 +9,74 @@
 #include "imaging_service.h"
 #include "ptz_service.h"
 
-
 //#include <vector>
+
+std::vector<ONVIFServer::Resolution> ONVIFServer::getCameraResolutions(camera_pid_t pid) {
+  switch (pid) {
+    case OV9650_PID:
+    case OV3660_PID:
+    case OV2640_PID:
+    case OV7670_PID:
+    case NT99141_PID:
+    case GC2145_PID:
+    case GC032A_PID:
+    case GC0308_PID:
+    case BF3005_PID:
+    case BF20A6_PID:
+    case SC101IOT_PID:
+    case SC030IOT_PID:
+    case SC031GS_PID:
+      return {
+        {2592, 1944}, {1600, 1200}, {1280, 1024}, {1280, 720}, 
+        {1024, 768}, {800, 600}, {640, 480}, {320, 240}, 
+        {240, 240}, {320, 320}, {400, 296}, {480, 320}, 
+        {176, 144}, {160, 120}, {128, 128}, {96, 96}
+      };
+    case OV5640_PID:
+    case MEGA_CCM_PID:
+      return {
+        {2592, 1944}, {2560, 1920}, {2560, 1600}, {2560, 1440}, 
+        {2048, 1536}, {1920, 1080}, {1600, 1200}, {1280, 1024}, 
+        {1280, 720}, {1024, 768}, {800, 600}, {720, 1280}, 
+        {640, 480}, {480, 320}, {320, 240}, {240, 240}, 
+        {320, 320}, {400, 296}, {176, 144}, {160, 120}, 
+        {128, 128}, {96, 96}
+      };
+    case OV7725_PID:
+      return {
+        {640, 480}, {320, 240}, {240, 240}, {320, 320}, 
+        {400, 296}, {480, 320}, {176, 144}, {160, 120}, 
+        {128, 128}, {96, 96}
+      };
+    default:
+      return {};
+  }
+}
+
+const char* ONVIFServer::getResolutions() {
+  sensor_t *s = esp_camera_sensor_get();
+  if (!s) {
+    LOG_ERR("Camera sensor not detected");
+    return nullptr;
+  }
+  std::vector<Resolution> resolutions = getCameraResolutions(static_cast<camera_pid_t>(s->id.PID));
+
+  static char resolutionsXml[2560] = "";
+  char resolutionEntry[110];
+
+  resolutionsXml[0] = '\0'; // Clear the string
+
+  for (const auto& res : resolutions) {
+    snprintf(resolutionEntry, sizeof(resolutionEntry), 
+      "<tt:ResolutionsAvailable>"
+      "<tt:Width>%d</tt:Width>"
+      "<tt:Height>%d</tt:Height>"
+      "</tt:ResolutionsAvailable>", 
+      res.width, res.height);
+    strncat(resolutionsXml, resolutionEntry, sizeof(resolutionsXml) - strlen(resolutionsXml) - 1);
+  }
+  return resolutionsXml;
+}
 
 void ONVIFServer::extractMessageID(const char* packetData, char* messageID, size_t messageIDSize) {
   const char* startTag = "MessageID";
@@ -75,6 +141,35 @@ void ONVIFServer::generateDeviceUUID(char* uuid, size_t uuidSize) {
            (unsigned long)(chipId));
 }
 
+char* ONVIFServer::getAction(const char* requestBody) {
+  char* action = NULL;
+  char* body_start = strstr((char*)requestBody, ":Body");
+  if (body_start) {
+    // Move to end of <*:Body ...>
+    body_start = strchr(body_start, '>');
+    if (body_start) {
+      body_start++; // Move past '>'
+      char* action_start = strstr(body_start, "<");
+      if (action_start) {
+        action_start++;
+        char* action_end = strchr(action_start, ' ');
+        if (!action_end) {
+          action_end = strchr(action_start, '>');
+        }
+        if (action_end) {
+          size_t action_len = action_end - action_start;
+          action = (char*)malloc(action_len + 1);
+          if (action) {
+            strncpy(action, action_start, action_len);
+            action[action_len] = '\0';
+          }
+        }
+      }
+    }
+  }
+  return action;
+}
+
 void ONVIFServer::populateOnvifResponse(const char* mainHeader, const char* templateStr, ...) {
   if (onvifBuffer == NULL) {
     LOG_ERR("ONVIF Buffer not allocated! Unable to create response, starting Onvif.");
@@ -91,11 +186,17 @@ void ONVIFServer::populateOnvifResponse(const char* mainHeader, const char* temp
 }
 
 char* ONVIFServer::populateSection(const char* format, ...) {
+  char* buffer = (char*)malloc(ONVIF_PARTS_BUFFER_SIZE);
+  if (!buffer) {
+    LOG_ERR("Failed to allocate memory for section buffer");
+    return NULL;
+  }
   va_list args;
   va_start(args, format);
-  vsnprintf((char*)onvifPartBuffer, ONVIF_PARTS_BUFFER_SIZE, format, args);
+  vsnprintf(buffer, ONVIF_PARTS_BUFFER_SIZE, format, args);
   va_end(args);
-  return (char*)onvifPartBuffer;
+  allocatedBuffers.push_back(buffer); // Add buffer to the list
+  return buffer;
 }
 
 
@@ -109,11 +210,18 @@ void ONVIFServer::buildOnvifResponse(const std::vector<const char*>& parts) {
   snprintf((char*)onvifBuffer, ONVIF_BUFFER_SIZE, "%s", parts[0]);
 
   for (size_t i = 1; i < parts.size(); ++i) {
-    strncat((char*)onvifBuffer, parts[i], ONVIF_BUFFER_SIZE - strlen((char*)onvifBuffer) - 1);
+    if (parts[i] != NULL) {
+      strncat((char*)onvifBuffer, parts[i], ONVIF_BUFFER_SIZE - strlen((char*)onvifBuffer) - 1);
+    }
   }
 
   strncat((char*)onvifBuffer, footer, ONVIF_BUFFER_SIZE - strlen((char*)onvifBuffer) - 1);
 
+  // Free all allocated buffers
+  for (char* buffer : allocatedBuffers) {
+    free(buffer);
+  }
+  allocatedBuffers.clear(); // Clear the list
 }
 
 template<typename... section>
@@ -155,11 +263,34 @@ void ONVIFServer::sendMessage(const char* messageType) {
   sendto(sock, (char*)onvifBuffer, strlen((char*)onvifBuffer), 0, (const struct sockaddr*)&addr, sizeof(addr));
 }
 
+// bool extractValue(const char* xml, const char* tag, int& value) {
+//   const char* start = strstr(xml, tag);
+//   if (start) {
+//     start = strchr(start, '>') + 1;
+//     const char* end = strchr(start, '<');
+//     if (end) {
+//       char buffer[16];
+//       strncpy(buffer, start, end - start);
+//       buffer[end - start] = '\0';
+//       value = atoi(buffer);
+//       return true;
+//     }
+//   }
+//   return false;
+// }
+
 bool extractValue(const char* xml, const char* tag, int& value) {
-  const char* start = strstr(xml, tag);
+  char openTag[64];
+  char closeTag[64];
+
+  // Construct the full opening and closing tags
+  snprintf(openTag, sizeof(openTag), "<%s>", tag);
+  snprintf(closeTag, sizeof(closeTag), "</%s>", tag);
+
+  const char* start = strstr(xml, openTag);
   if (start) {
-    start = strchr(start, '>') + 1;
-    const char* end = strchr(start, '<');
+    start += strlen(openTag); // Move the pointer past the opening tag
+    const char* end = strstr(start, closeTag);
     if (end) {
       char buffer[16];
       strncpy(buffer, start, end - start);
@@ -169,6 +300,130 @@ bool extractValue(const char* xml, const char* tag, int& value) {
     }
   }
   return false;
+}
+
+
+bool extractStringValue(const char* xml, const char* tag, char* value, size_t valueSize) {
+  const char* start = strstr(xml, tag);
+  if (start) {
+    start = strchr(start, '>') + 1;
+    const char* end = strchr(start, '<');
+    if (end) {
+      size_t len = end - start;
+      if (len >= valueSize) {
+        LOG_ERR("Value is too long: %.*s", (int)len, start);
+        return false;
+      }
+      strncpy(value, start, len);
+      value[len] = '\0';
+      return true;
+    }
+  }
+  return false;
+}
+
+void ONVIFServer::parseSystemDateAndTime(const char* requestBody) {
+  char dateTimeType[16], daylightSavings[6], timeZone[64];
+  int hour, minute, second, year, month, day;
+
+  // Extract and log DateTimeType
+  if (!extractStringValue(requestBody, "DateTimeType", dateTimeType, sizeof(dateTimeType))) {
+    LOG_ERR("Failed to extract DateTimeType");
+    return;
+  }
+  LOG_INF("Extracted DateTimeType: %s", dateTimeType);
+
+  // Extract and log DaylightSavings
+  if (!extractStringValue(requestBody, "DaylightSavings", daylightSavings, sizeof(daylightSavings))) {
+    LOG_ERR("Failed to extract DaylightSavings");
+    return;
+  }
+  LOG_INF("Extracted DaylightSavings: %s", daylightSavings);
+
+  // Extract and log TimeZone
+  if (!extractStringValue(requestBody, "TZ", timeZone, sizeof(timeZone))) {
+    LOG_ERR("Failed to extract TimeZone");
+    return;
+  }
+  LOG_INF("Extracted TimeZone: %s", timeZone);
+
+  // Extract and log time values
+  if (!extractValue(requestBody, "Hour", hour) ||
+      !extractValue(requestBody, "Minute", minute) ||
+      !extractValue(requestBody, "Second", second) ||
+      !extractValue(requestBody, "Year", year) ||
+      !extractValue(requestBody, "Month", month) ||
+      !extractValue(requestBody, "Day", day)) {
+    LOG_ERR("Failed to extract date/time values");
+    return;
+  }
+  LOG_INF("Extracted Time: %04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
+
+  // Apply the extracted settings
+  struct tm timeinfo;
+  timeinfo.tm_year = year - 1900;
+  timeinfo.tm_mon = month - 1;
+  timeinfo.tm_mday = day;
+  timeinfo.tm_hour = hour;
+  timeinfo.tm_min = minute;
+  timeinfo.tm_sec = second;
+
+  // Log timeinfo struct values
+  LOG_INF("tm structure - Year: %d, Month: %d, Day: %d, Hour: %d, Minute: %d, Second: %d",
+          timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday, timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+
+  time_t t = mktime(&timeinfo);
+  struct timeval now = { .tv_sec = t };
+  settimeofday(&now, NULL);
+
+  // Set the timezone
+  setenv("TZ", timeZone, 1);
+  tzset();
+
+  LOG_INF("System date and time set to: %04d-%02d-%02d %02d:%02d:%02d, TimeZone: %s, DaylightSavings: %s",
+          year, month, day, hour, minute, second, timeZone, daylightSavings);
+}
+
+void ONVIFServer::parseNetworkProtocols(const char* requestBody) {
+  char protocolName[16], enabledStr[6];
+  int port;
+
+  const char* protocols[] = {"HTTP", "HTTPS", "RTSP"};
+
+  for (const char* protocol : protocols) {
+    // Extract and log Protocol Name
+    if (!extractStringValue(requestBody, protocol, protocolName, sizeof(protocolName))) {
+      LOG_ERR("Failed to extract Protocol Name for %s", protocol);
+      return;
+    }
+    LOG_INF("Extracted Protocol Name: %s", protocolName);
+
+    // Extract and log Enabled status
+    if (!extractStringValue(requestBody, "Enabled", enabledStr, sizeof(enabledStr))) {
+      LOG_ERR("Failed to extract Enabled status for %s", protocol);
+      return;
+    }
+    LOG_INF("Extracted Enabled status for %s: %s", protocol, enabledStr);
+
+    // Extract and log Port
+    if (!extractValue(requestBody, "Port", port)) {
+      LOG_ERR("Failed to extract Port for %s", protocol);
+      return;
+    }
+    LOG_INF("Extracted Port for %s: %d", protocol, port);
+
+    // Apply the extracted settings
+    bool enabled = strcmp(enabledStr, "true") == 0;
+    setNetworkProtocol(protocolName, enabled, port);
+  }
+}
+
+void ONVIFServer::setNetworkProtocol(const char* protocolName, bool enabled, int port) {
+  // Set the protocol settings on the ESP32
+  LOG_INF("Setting Protocol: %s, Enabled: %s, Port: %d", protocolName, enabled ? "true" : "false", port);
+  
+  // Implement protocol-specific logic here
+  // For example, setting the HTTP server port, enabling/disabling HTTPS, etc.
 }
 
 void ONVIFServer::parseAndApplySettings(const char* requestBody) {
@@ -203,187 +458,221 @@ void ONVIFServer::parseAndApplySettings(const char* requestBody) {
 }
 
 
-void ONVIFServer::onvifServiceResponse(const char* action, const char* uri, const char* requestBody) {
-  LOG_INF("Onvif request: %s at URI: %s", action, uri);
-
-  char messageID[37];
-  generateUUID(messageID, sizeof(messageID));
-
-  if (strstr(uri, "/device_service")) {
-    // Device services
-    if (strstr(action, "GetDeviceInformation")) {
-      //populateOnvifResponse(maxHeader, getDeviceInfo, manufacturer, model, version, serial, hardware);
-      buildOnvifResponse(maxHeader, populateSection(getDeviceInfo, manufacturer, model, version, serial, hardware));
-    } else if (strstr(action, "GetCapabilities")) {
-      buildOnvifResponse(maxHeader, getCapabilitiesStart,
-        populateSection(getCapabilitiesDevice, ipAddress),
-        enableEvents ? populateSection(getCapabilitiesEvents, ipAddress) : "",
-        populateSection(getCapabilitiesImaging, ipAddress),
-        populateSection(getCapabilitiesMedia, ipAddress),
-        populateSection(getCapabilitiesExension, ipAddress, enableAudio ? "1" : "0", enableTwoWayAudio ? "1" : "0"),
-        enablePTZ ? populateSection(getCapabilitiesPTZ, ipAddress) : "",
-        getCapabilitiesEnd
-      );
-
-    } else if (strstr(action, "GetServices")) {
-      buildOnvifResponse(maxHeader, getServicesStart,
-        populateSection(getServicesDevice, ipAddress),
-        enableEvents ? populateSection(getServicesEvent, ipAddress) : "",
-        enableTwoWayAudio ? populateSection(getServicesMedia2, ipAddress) : "",
-        populateSection(getServicesMedia, ipAddress),
-        enablePTZ ? populateSection(getServicesPTZ, ipAddress) : "",
-        populateSection(getServicesImage, ipAddress),
-        getServicesEnd
-      );
-      //populateOnvifResponse(maxHeader, getServices, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress, ipAddress);
-    } else if (strstr(action, "GetScopes")) {
-      buildOnvifResponse(maxHeader, getScopesStart,
-        enableAudio ? getScopesAudio : "",
-        getScopesVideo,
-        enablePTZ ? getScopesPTZ : "",
-        getScopesProS,
-        enableTwoWayAudio ? getScopesProT : "",
-        populateSection(getScopesInfo, location, name, hardware));
-    } else if (strstr(action, "GetZeroConfiguration")) {
-      buildOnvifResponse(maxHeader, populateSection(getZeroConfig, ipAddress));
-    } else if (strstr(action, "GetNetworkInterfaces")) {
-      char macAddress[18];
-      snprintf(macAddress, sizeof(macAddress), "%s", WiFi.macAddress().c_str());
-      buildOnvifResponse(maxHeader, populateSection(getNetworkInterfaces, macAddress, ipAddress));
-    } else if (strstr(action, "GetDNS")) {
-      char gatewayIP[16];
-      snprintf(gatewayIP, sizeof(gatewayIP), "%u.%u.%u.%u", 
-               WiFi.gatewayIP()[0], WiFi.gatewayIP()[1], 
-               WiFi.gatewayIP()[2], WiFi.gatewayIP()[3]);
-      buildOnvifResponse(maxHeader, populateSection(getDNS, gatewayIP));
-    } else if (strstr(action, "GetSystemDateAndTime")) {
-      time_t now;
-      struct tm timeinfo;
-      time(&now);
-      localtime_r(&now, &timeinfo);
-
-      const char* dateTimeType = (sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED) ? "NTP" : "Manual";
-      const char* daylightSavings = timeinfo.tm_isdst > 0 ? "true" : "false";
-
-      buildOnvifResponse(maxHeader, populateSection(getSystemDateAndTime,
-                            dateTimeType, daylightSavings, timezone,
-                            timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec,
-                            timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday));
-    } else if (strstr(action, "GetEndpointReference")) {
-      buildOnvifResponse(maxHeader, populateSection(getEndpointReference, deviceUUID));
-    } else {
-      snprintf((char*)onvifBuffer, ONVIF_BUFFER_SIZE, "UNKNOWN");
-    }
-
-  } else if (strstr(uri, "/media_service") || strstr(uri, "/media2_service")) { // Add media2_service handling
-    // Media services
-    if (strcmp(action, "GetProfile") == 0) {
-      populateOnvifResponse(mediaHeader, getProfiles, "Profile", "Profile", "Profile", "Profile");
-    } else if (strcmp(action, "GetProfiles") == 0) {
-      if (strstr(uri, "/media2_service")) {
-        // Handle Media2 version response
-        populateOnvifResponse(mediaHeader, getProfilesMedia2);
-      } else {
-        // Handle Media1 version response
-        populateOnvifResponse(mediaHeader, getProfiles, "Profiles", "Profiles", "Profiles", "Profiles");
-      }
-    } else if (strstr(action, "GetStreamUri")) {
-      populateOnvifResponse(mediaHeader, getStreamUri, ipAddress);
-    } else if (strstr(action, "GetSnapshotUri")) {
-      populateOnvifResponse(mediaHeader, getSnapshotUri, ipAddress);
-    } else if (strstr(action, "GetVideoSources")) {
-      populateOnvifResponse(maxHeader, getVideoSources);
-    } else if (strstr(action, "GetVideoSourceConfiguration")) {
-      populateOnvifResponse(maxHeader, getVideoSourceConfiguration);
-    } else if (strstr(action, "GetVideoEncoderConfigurationOptions")) {
-      populateOnvifResponse(maxHeader, getVideoEncoderConfigurationOptions);
-    } else if (strstr(action, "GetAudioDecoderConfigurations")) {
-      populateOnvifResponse(mediaHeader, getAudioDecoderConfigurations);
-    } else if (strstr(action, "GetAudioSources")) {
-      populateOnvifResponse(mediaHeader, getAudioSources);
-    } else if (strstr(action, "GetAudioOutputConfiguration")) {
-      populateOnvifResponse(mediaHeader, getAudioOutputConfiguration);
-    } else if (strstr(action, "GetAudioOutputConfigurationOptions")) {
-      populateOnvifResponse(mediaHeader, getAudioOutputConfigurationOptions);
-    } else if (strstr(action, "GetAudioOutputConfigurations")) {
-      populateOnvifResponse(mediaHeader, getAudioOutputConfigurations);
-    } else {
-      snprintf((char*)onvifBuffer, ONVIF_BUFFER_SIZE, "UNKNOWN");
-    }
-
-  } else if (strstr(uri, "/image_service")) {
-    // Imaging services
-    if (strstr(action, "GetImagingSettings")) {
-      sensor_t* s = esp_camera_sensor_get();
-      if (!s) {
-        LOG_ERR("Failed to get camera sensor");
-        return;
-      }
-
-      int brightness = s->status.brightness;
-      int contrast = s->status.contrast;
-      int colorSaturation = s->status.saturation;
-      int sharpness = s->status.sharpness;
-      const char* exposureMode = s->status.aec ? "AUTO" : "MANUAL";
-      int minExposureTime = s->status.aec2;
-      int maxExposureTime = s->status.aec_value;
-      int gain = s->status.agc_gain;
-      const char* whiteBalanceMode = s->status.awb ? "AUTO" : "MANUAL";
-
-      populateOnvifResponse(maxHeader, getImagingSettings,
-                            brightness, contrast, colorSaturation, sharpness,
-                            exposureMode, minExposureTime, maxExposureTime, gain,
-                            whiteBalanceMode);
-    } else if (strstr(action, "GetOptions")) {
-      populateOnvifResponse(maxHeader, getImagingOptions);
-    } else if (strstr(action, "GetMoveOptions")) {
-      populateOnvifResponse(maxHeader, getMoveOptions);
-    } else if (strstr(action, "SetImagingSettings")) {
-      if (requestBody) parseAndApplySettings(requestBody);
-      populateOnvifResponse(maxHeader, setImagingSettings);
-    } else {
-      snprintf((char*)onvifBuffer, ONVIF_BUFFER_SIZE, "UNKNOWN");
-    }
-    
-  } else if (strstr(uri, "/ptz_service")) {
-    // PTZ services
-    if (strstr(action, "GetNodes")) {
-      populateOnvifResponse(ptzHeader, getNodes);
-    } else if (strstr(action, "GetConfigurations")) {
-      populateOnvifResponse(ptzHeader, getConfigurations);
-    } else {
-      snprintf((char*)onvifBuffer, ONVIF_BUFFER_SIZE, "UNKNOWN");
-    }
-
-  } else if (strstr(uri, "/event_service")) {
-    // Event services
-    char currentTime[32], terminationTime[32], utcTime[32];
-    // Generate current, termination, and UTC times
-    time_t now = time(NULL);
+void ONVIFServer::handleDeviceService(const char* action, const char* requestBody) {
+  if (strstr(action, "GetDeviceInformation")) {
+    buildOnvifResponse(maxHeader, populateSection(getDeviceInfo, manufacturer, model, version, serial, hardware));
+  } else if (strstr(action, "GetCapabilities")) {
+    buildOnvifResponse(maxHeader, getCapabilitiesStart,
+      populateSection(getCapabilitiesDevice, ipAddress),
+      enableEvents ? populateSection(getCapabilitiesEvents, ipAddress) : NULL,
+      populateSection(getCapabilitiesImaging, ipAddress),
+      populateSection(getCapabilitiesMedia, ipAddress),
+      populateSection(getCapabilitiesExension, ipAddress, enableAudio ? "1" : "0", enableTwoWayAudio ? "1" : "0"),
+      enablePTZ ? populateSection(getCapabilitiesPTZ, ipAddress) : NULL,
+      getCapabilitiesEnd
+    );
+  } else if (strstr(action, "GetServices")) {
+    buildOnvifResponse(maxHeader, getServicesStart,
+      populateSection(getServicesDevice, ipAddress),
+      enableEvents ? populateSection(getServicesEvent, ipAddress) : NULL,
+      enableTwoWayAudio ? populateSection(getServicesMedia2, ipAddress) : NULL,
+      populateSection(getServicesMedia, ipAddress),
+      enablePTZ ? populateSection(getServicesPTZ, ipAddress) : NULL,
+      populateSection(getServicesImage, ipAddress),
+      getServicesEnd
+    );
+  } else if (strstr(action, "GetScopes")) {
+    buildOnvifResponse(maxHeader, getScopesStart,
+      enableAudio ? getScopesAudio : NULL,
+      getScopesVideo,
+      enablePTZ ? getScopesPTZ : NULL,
+      getScopesProS,
+      enableTwoWayAudio ? getScopesProT : NULL,
+      populateSection(getScopesInfo, location, name, hardware),
+      getScopesEnd
+    );
+  } else if (strstr(action, "GetZeroConfiguration")) {
+    buildOnvifResponse(maxHeader, populateSection(getZeroConfig, ipAddress));
+  } else if (strstr(action, "GetNetworkInterfaces")) {
+    char macAddress[18];
+    snprintf(macAddress, sizeof(macAddress), "%s", WiFi.macAddress().c_str());
+    buildOnvifResponse(maxHeader, populateSection(getNetworkInterfaces, macAddress, ipAddress));
+  } else if (strstr(action, "GetNTP")) {
+    buildOnvifResponse(maxHeader, populateSection(getNTP));
+  } else if (strstr(action, "GetHostname")) {
+    buildOnvifResponse(maxHeader, populateSection(getHostname));
+  } else if (strstr(action, "GetNetworkDefaultGateway")) {
+    buildOnvifResponse(maxHeader, populateSection(getNetworkDefaultGateway));
+  } else if (strstr(action, "GetNetworkProtocols")) {
+    buildOnvifResponse(maxHeader, populateSection(getNetworkProtocols));
+  } else if (strstr(action, "GetDiscoveryMode")) {
+    buildOnvifResponse(maxHeader, populateSection(getDiscoveryMode));
+  } else if (strstr(action, "GetDNS")) {
+    char gatewayIP[16];
+    snprintf(gatewayIP, sizeof(gatewayIP), "%u.%u.%u.%u", 
+             WiFi.gatewayIP()[0], WiFi.gatewayIP()[1], 
+             WiFi.gatewayIP()[2], WiFi.gatewayIP()[3]);
+    buildOnvifResponse(maxHeader, populateSection(getDNS, gatewayIP));
+  } else if (strstr(action, "GetSystemDateAndTime")) {
+    time_t now;
     struct tm timeinfo;
-    gmtime_r(&now, &timeinfo);
-    strftime(currentTime, sizeof(currentTime), "%Y-%m-%dT%H:%M:%SZ", &timeinfo);
-    timeinfo.tm_min += 1; // Add 1 minute for termination time
-    mktime(&timeinfo);
-    strftime(terminationTime, sizeof(terminationTime), "%Y-%m-%dT%H:%M:%SZ", &timeinfo);
-    strftime(utcTime, sizeof(utcTime), "%Y-%m-%dT%H:%M:%SZ", &timeinfo);
+    time(&now);
+    gmtime_r(&now, &timeinfo); // Use gmtime_r for UTC time
 
-    char messageID[42];
-    generateUUID(messageID, sizeof(messageID));
+    const char* dateTimeType = (sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED) ? "NTP" : "Manual";
+    const char* daylightSavings = timeinfo.tm_isdst > 0 ? "true" : "false";
 
-    if (strstr(action, "GetEventProperties")) {
-      populateOnvifResponse(maxHeader, getEventProperties, messageID);
-    } else if (strstr(action, "CreatePullPointSubscription")) {
-      populateOnvifResponse(maxHeader, createPullPointSubscription, messageID, ipAddress, currentTime, terminationTime);
-    } else if (strstr(action, "PullMessages")) {
-      populateOnvifResponse(maxHeader, pullMessages, messageID, currentTime, terminationTime, utcTime, utcTime);
-    } else if (strstr(action, "Unsubscribe")) {
-      populateOnvifResponse(maxHeader, unsubscribe, messageID);
-    } else {
-      snprintf((char*)onvifBuffer, ONVIF_BUFFER_SIZE, "UNKNOWN");
-    }
+    buildOnvifResponse(maxHeader, populateSection(getSystemDateAndTime,
+                          dateTimeType, daylightSavings, timezone,
+                          timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec,
+                          timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday));
+  } else if (strstr(action, "SetSystemDateAndTime")) {
+    parseSystemDateAndTime(requestBody);
+    buildOnvifResponse(maxHeader, setSystemDateAndTime);
+  } else if (strstr(action, "SetNetworkProtocols")) {
+    parseNetworkProtocols(requestBody);
+    buildOnvifResponse(maxHeader, setNetworkProtocols);
+  } else if (strstr(action, "GetEndpointReference")) {
+    buildOnvifResponse(maxHeader, populateSection(getEndpointReference, deviceUUID));
   } else {
     snprintf((char*)onvifBuffer, ONVIF_BUFFER_SIZE, "UNKNOWN");
+  }
+}
+
+void ONVIFServer::handleMediaService(const char* action) {
+  if (strcmp(action, "GetProfile") == 0) {
+    populateOnvifResponse(mediaHeader, getProfiles, "Profile", "Profile", "Profile", "Profile");
+  } else if (strcmp(action, "GetProfiles") == 0) {
+    populateOnvifResponse(mediaHeader, getProfiles, "Profiles", "Profiles", "Profiles", "Profiles");
+  } else if (strstr(action, "GetStreamUri")) {
+    populateOnvifResponse(mediaHeader, getStreamUri, ipAddress);
+  } else if (strstr(action, "GetSnapshotUri")) {
+    populateOnvifResponse(mediaHeader, getSnapshotUri, ipAddress);
+  } else if (strstr(action, "GetVideoSources")) {
+    populateOnvifResponse(maxHeader, getVideoSources);
+  } else if (strstr(action, "GetVideoSourceConfiguration")) {
+    populateOnvifResponse(maxHeader, getVideoSourceConfiguration);
+  } else if (strstr(action, "GetVideoEncoderConfigurationOptions")) {
+    buildOnvifResponse(maxHeader, populateSection(getVideoEncoderConfigurationOptions, getResolutions()));
+  } else if (strstr(action, "GetAudioDecoderConfigurations")) {
+    populateOnvifResponse(mediaHeader, getAudioDecoderConfigurations);
+  } else if (strstr(action, "GetAudioSources")) {
+    populateOnvifResponse(mediaHeader, getAudioSources);
+  } else if (strstr(action, "GetAudioOutputConfiguration")) {
+    populateOnvifResponse(mediaHeader, getAudioOutputConfiguration);
+  } else if (strstr(action, "GetAudioOutputConfigurationOptions")) {
+    populateOnvifResponse(mediaHeader, getAudioOutputConfigurationOptions);
+  } else if (strstr(action, "GetAudioOutputConfigurations")) {
+    populateOnvifResponse(mediaHeader, getAudioOutputConfigurations);
+  } else {
+    snprintf((char*)onvifBuffer, ONVIF_BUFFER_SIZE, "UNKNOWN");
+  }
+}
+
+void ONVIFServer::handleMedia2Service(const char* action) {
+  if (strcmp(action, "GetProfiles") == 0) {
+    populateOnvifResponse(mediaHeader, getProfilesMedia2);
+  } else {
+    snprintf((char*)onvifBuffer, ONVIF_BUFFER_SIZE, "UNKNOWN");
+  }
+}
+
+void ONVIFServer::handleImagingService(const char* action, const char* requestBody) {
+  if (strstr(action, "GetImagingSettings")) {
+    sensor_t* s = esp_camera_sensor_get();
+    if (!s) {
+      LOG_ERR("Failed to get camera sensor");
+      return;
+    }
+
+    int brightness = s->status.brightness;
+    int contrast = s->status.contrast;
+    int colorSaturation = s->status.saturation;
+    int sharpness = s->status.sharpness;
+    const char* exposureMode = s->status.aec ? "AUTO" : "MANUAL";
+    int minExposureTime = s->status.aec2;
+    int maxExposureTime = s->status.aec_value;
+    int gain = s->status.agc_gain;
+    const char* whiteBalanceMode = s->status.awb ? "AUTO" : "MANUAL";
+
+    populateOnvifResponse(maxHeader, getImagingSettings,
+                          brightness, contrast, colorSaturation, sharpness,
+                          exposureMode, minExposureTime, maxExposureTime, gain,
+                          whiteBalanceMode);
+  } else if (strstr(action, "GetOptions")) {
+    populateOnvifResponse(maxHeader, getImagingOptions);
+  } else if (strstr(action, "GetMoveOptions")) {
+    populateOnvifResponse(maxHeader, getMoveOptions);
+  } else if (strstr(action, "SetImagingSettings")) {
+    if (requestBody) parseAndApplySettings(requestBody);
+    populateOnvifResponse(maxHeader, setImagingSettings);
+  } else {
+    snprintf((char*)onvifBuffer, ONVIF_BUFFER_SIZE, "UNKNOWN");
+  }
+}
+
+void ONVIFServer::handlePTZService(const char* action) {
+  if (strstr(action, "GetNodes")) {
+    populateOnvifResponse(ptzHeader, getNodes);
+  } else if (strstr(action, "GetConfigurations")) {
+    populateOnvifResponse(ptzHeader, getConfigurations);
+  } else {
+    snprintf((char*)onvifBuffer, ONVIF_BUFFER_SIZE, "UNKNOWN");
+  }
+}
+
+void ONVIFServer::handleEventService(const char* action) {
+  char currentTime[32], terminationTime[32], utcTime[32];
+  time_t now = time(NULL);
+  struct tm timeinfo;
+  gmtime_r(&now, &timeinfo);
+  strftime(currentTime, sizeof(currentTime), "%Y-%m-%dT%H:%M:%SZ", &timeinfo);
+  timeinfo.tm_min += 1;
+  mktime(&timeinfo);
+  strftime(terminationTime, sizeof(terminationTime), "%Y-%m-%dT%H:%M:%SZ", &timeinfo);
+  strftime(utcTime, sizeof(utcTime), "%Y-%m-%dT%H:%M:%SZ", &timeinfo);
+
+  char messageID[42];
+  generateUUID(messageID, sizeof(messageID));
+
+  if (strstr(action, "GetEventProperties")) {
+    populateOnvifResponse(maxHeader, getEventProperties, messageID);
+  } else if (strstr(action, "CreatePullPointSubscription")) {
+    populateOnvifResponse(maxHeader, createPullPointSubscription, messageID, ipAddress, currentTime, terminationTime);
+  } else if (strstr(action, "PullMessages")) {
+    populateOnvifResponse(maxHeader, pullMessages, currentTime, terminationTime, utcTime, utcTime);
+  } else if (strstr(action, "Unsubscribe")) {
+    populateOnvifResponse(maxHeader, unsubscribe, messageID);
+  } else if (strstr(action, "Renew")) {
+    populateOnvifResponse(maxHeader, renewSubscription, messageID, terminationTime, currentTime);
+  } else {
+    snprintf((char*)onvifBuffer, ONVIF_BUFFER_SIZE, "UNKNOWN");
+  }
+}
+
+void ONVIFServer::onvifServiceResponse(const char* uri, const char* requestBody) {
+  // Extract action from requestBody
+  char* action = getAction(requestBody);
+  
+  LOG_INF("Onvif request: %s at URI: %s", action, uri);
+
+  if (action) {
+    if (strstr(uri, "/device_service")) {
+      handleDeviceService(action, requestBody);
+    } else if (strstr(uri, "/media_service")) {
+      handleMediaService(action);
+    } else if (strstr(uri, "/media2_service")) {
+      handleMedia2Service(action);
+    } else if (strstr(uri, "/image_service")) {
+      handleImagingService(action, requestBody);
+    } else if (strstr(uri, "/ptz_service")) {
+      handlePTZService(action);
+    } else if (strstr(uri, "/event_service")) {
+      handleEventService(action);
+    } else {
+      snprintf((char*)onvifBuffer, ONVIF_BUFFER_SIZE, "UNKNOWN");
+    }
+    free(action);
   }
 }
 

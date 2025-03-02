@@ -48,27 +48,48 @@ public:
 
   template<typename... Args>
   void setBlockedIPs(Args... ips); // Renamed method
+  // Resolution struct
+  struct Resolution {
+    int width;
+    int height;
+  };
 
 private:
   size_t blockedIPCount;
   void extractMessageID(const char* packetData, char* messageID, size_t messageIDSize);
   void generateUUID(char* uuid, size_t uuidSize);
   void generateDeviceUUID(char* uuid, size_t uuidSize);
+  char* getAction(const char* requestBody);
   void populateOnvifResponse(const char* mainHeader, const char* templateStr, ...);
+  std::vector<char*> allocatedBuffers;
   char* populateSection(const char* format, ...);
   void buildOnvifResponse(const std::vector<const char*>& parts);
   template<typename... section>
   void buildOnvifResponse(const char* mainHeader, section... args);
   void sendMatch(const char* messageID, const char* relatesToID, const char* action);
   void sendMessage(const char* messageType);
+  void parseSystemDateAndTime(const char* requestBody);
+  void parseNetworkProtocols(const char* requestBody);
   void parseAndApplySettings(const char* requestBody);
-  void onvifServiceResponse(const char* action, const char* uri, const char* requestBody = nullptr);
+  void onvifServiceResponse(const char* uri, const char* requestBody = nullptr);
   bool isBlocked(const char* ip);
   void process_packet(const char *packet_data, size_t len, const struct sockaddr_in *sender_addr, int sock);
   bool setNonBlocking(int sock);
   void onvifTask(void *pvParameters);
   void sendHello();
   static void sendHelloWrapper(void* arg);
+
+  std::vector<Resolution> getCameraResolutions(camera_pid_t pid);
+  const char* getResolutions();
+
+  void setNetworkProtocol(const char* protocolName, bool enabled, int port);
+
+  void handleDeviceService(const char* action, const char* requestBody);
+  void handleMediaService(const char* action);
+  void handleMedia2Service(const char* action);
+  void handleImagingService(const char* action, const char* requestBody);
+  void handlePTZService(const char* action);
+  void handleEventService(const char* action);
 
   TaskHandle_t onvifHandle;
   uint8_t* onvifBuffer;

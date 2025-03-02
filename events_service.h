@@ -33,14 +33,12 @@ const char* getEventProperties =
 
 const char* pullMessages =
   "<s:Header>"
-  "<wsa:MessageID>urn:uuid:%s</wsa:MessageID>"
-  "<wsa:To>http://www.w3.org/2005/08/addressing/anonymous</wsa:To>"
-  "<wsa:Action>http://www.onvif.org/ver10/events/wsdl/EventPortType/PullMessagesResponse</wsa:Action>"
+  "<wsa:Action>http://www.onvif.org/ver10/events/wsdl/PullPointSubscription/PullMessagesResponse</wsa:Action>"
   "</s:Header>"
   "<s:Body>"
   "<tev:PullMessagesResponse>"
-  "<wsnt:CurrentTime>%s</wsnt:CurrentTime>"
-  "<wsnt:TerminationTime>%s</wsnt:TerminationTime>"
+  "<tev:CurrentTime>%s</tev:CurrentTime>"
+  "<tev:TerminationTime>%s</tev:TerminationTime>"
   "<wsnt:NotificationMessage>"
   "<wsnt:Topic Dialect=\"http://www.onvif.org/ver10/tev/topicExpression/ConcreteSet\">tns1:Device/Trigger/Relay</wsnt:Topic>"
   "<wsnt:Message>"
@@ -69,6 +67,7 @@ const char* pullMessages =
   "</wsnt:NotificationMessage>"
   "</tev:PullMessagesResponse>";
 
+  
 const char* unsubscribe =
   "<s:Header>"
   "<wsa:MessageID>urn:uuid:%s</wsa:MessageID>"
@@ -76,4 +75,17 @@ const char* unsubscribe =
   "<wsa:Action>http://www.onvif.org/ver10/events/wsdl/EventPortType/UnsubscribeResponse</wsa:Action>"
   "</s:Header>"
   "<s:Body>"
-  "<tev:UnsubscribeResponse/>";
+  "<tev:UnsubscribeResponse>"
+  "</tev:UnsubscribeResponse>";
+
+const char* renewSubscription =
+  "<s:Header>"
+  "<wsa:MessageID>urn:uuid:%s</wsa:MessageID>"
+  "<wsa:To>http://www.w3.org/2005/08/addressing/anonymous</wsa:To>"
+  "<wsa:Action>http://docs.oasis-open.org/wsn/bw-2/SubscriptionManager/RenewResponse</wsa:Action>"
+  "</s:Header>"
+  "<s:Body>"
+  "<wsnt:RenewResponse>"
+  "<wsnt:TerminationTime>%s</wsnt:TerminationTime>"
+  "<wsnt:CurrentTime>%s</wsnt:CurrentTime>"
+  "</wsnt:RenewResponse>";

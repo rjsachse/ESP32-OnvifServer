@@ -10,7 +10,7 @@ ONVIFServer::ONVIFServer()
     hardware("ESP32"),
     location("Home"),
     timezone("CET-1CEST,M3.5.0,M10.5.0/3"),
-    enableEvents(true),
+    enableEvents(false),
     enablePTZ(true),
     enableAudio(true),
     enableTwoWayAudio(true),
@@ -40,7 +40,6 @@ ONVIFServer::~ONVIFServer() {
 }
 
 esp_err_t ONVIFServer::onvifHandler(httpd_req_t *req) {
-  uint8_t buf[100] = {0};
   esp_err_t ret = ESP_OK; // Initialize ret
   uint8_t content[1500] = {0};
 
@@ -70,38 +69,16 @@ esp_err_t ONVIFServer::onvifHandler(httpd_req_t *req) {
   }
   content[received] = '\0'; // Null-terminate the received content
 
-  // Extract action from XML body
-  char* body_start = strstr((char*)content, ":Body");
-  if (body_start) {
-    // Move to end of <*:Body ...>
-    body_start = strchr(body_start, '>');
-    if (body_start) {
-      body_start++; // Move past '>'
-      char* action_start = strstr(body_start, "<");
-      if (action_start) {
-        action_start++;
-        char* action_end = strchr(action_start, ' ');
-        if (!action_end) {
-          action_end = strchr(action_start, '>');
-        }
-        if (action_end) {
-          size_t action_len = action_end - action_start;
-          strncpy((char *)buf, action_start, action_len);
-          buf[action_len] = '\0';
-        }
-      }
-    }
-  }
-
   // Extract URI to determine the specific service being requested
   const char* uri = req->uri;
 
-  // Generate response using the action in buffer and the specific service URI
-  // Pass the full request body as third parameter
-  onvifServiceResponse((char*)buf, uri, (char*)content);
+  // Generate response using the specific service URI
+  onvifServiceResponse(uri, (char*)content);
   
   if (strcmp((char*)onvifBuffer, "UNKNOWN") == 0) {
-    LOG_ERR("Unknown ONVIF Action: %s at URI: %s", buf, uri);
+    char* action = getAction((char*)content);
+    LOG_ERR("Unknown ONVIF Action: %s at URI: %s", action, uri);
+    free(action);
     httpd_resp_send_404(req);
     return ESP_FAIL;
   }
@@ -150,10 +127,6 @@ void ONVIFServer::startOnvif() {
     if (onvifBuffer == NULL) {
       LOG_ERR("ONVIF Buffer allocation failed!");
     }
-    onvifPartBuffer = (uint8_t*)ps_malloc(ONVIF_PARTS_BUFFER_SIZE);  // Dynamically allocate memory
-    if (onvifPartBuffer == NULL) {
-      LOG_ERR("Memory allocation failed!");
-    }
   } else {
     LOG_ERR("ONVIF Buffer allocation failed! PSRAM not found");
   }
@@ -162,13 +135,6 @@ void ONVIFServer::startOnvif() {
     onvifBuffer = (uint8_t*)malloc(ONVIF_BUFFER_SIZE);
     if (onvifBuffer == NULL) {
       LOG_ERR("ONVIF Buffer allocation failed in regular RAM!");
-    }
-  }
-  
-  if (onvifPartBuffer == NULL) {
-    onvifPartBuffer = (uint8_t*)malloc(ONVIF_PARTS_BUFFER_SIZE);  // Dynamically allocate memory
-    if (onvifPartBuffer == NULL) {
-      LOG_ERR("ONVIF Part Buffer allocation failed in regular RAM!");
     }
   }
 
@@ -244,11 +210,6 @@ void ONVIFServer::stopOnvif() {
     free(onvifBuffer);
     onvifBuffer = NULL;
   }  
-  if (onvifPartBuffer != NULL) {
-    free(onvifPartBuffer);
-    onvifPartBuffer = NULL;
-  }
-  
 }
 
 bool ONVIFServer::isBlocked(const char* ip) {

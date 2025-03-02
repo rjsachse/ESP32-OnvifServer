@@ -30,10 +30,10 @@
 // ===========================
 // Enter your WiFi credentials
 // ===========================
-//const char *ssid = "WiFi-E0C99C";
-//const char *password = "11444305";
- const char *ssid = "PrettyFlyForWifi";
- const char *password = "Mynetwork13!";
+const char *ssid = "WiFi-E0C99C";
+const char *password = "11444305";
+//  const char *ssid = "PrettyFlyForWifi";
+//  const char *password = "Mynetwork13!";
 
 // RTSPServer instance
 RTSPServer rtspServer;
@@ -408,7 +408,7 @@ void setup() {
     Serial.println("Failed to start RTSP server"); 
   }
 #else
-  if (rtspServer.init()) { 
+  if (rtspServer.init(RTSPServer::VIDEO_AUDIO_SUBTITLES, 554, 16000)) { 
     Serial.printf("RTSP server started successfully using default values, Connect to rtsp://%s:554/\n", WiFi.localIP().toString().c_str());
   } else { 
     Serial.println("Failed to start RTSP server"); 

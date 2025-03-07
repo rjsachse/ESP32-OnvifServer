@@ -30,10 +30,10 @@
 // ===========================
 // Enter your WiFi credentials
 // ===========================
-const char *ssid = "WiFi-E0C99C";
-const char *password = "11444305";
-//  const char *ssid = "PrettyFlyForWifi";
-//  const char *password = "Mynetwork13!";
+//const char *ssid = "WiFi-E0C99C";
+//const char *password = "11444305";
+  const char *ssid = "PrettyFlyForWifi";
+  const char *password = "Mynetwork13!";
 
 // RTSPServer instance
 RTSPServer rtspServer;
@@ -424,7 +424,7 @@ void setup() {
   if (httpd_start(&server, &config) == ESP_OK) {
     // Setup the ONVIF server using the library
     onvifServer.setup_onvif_server(server);
-    onvifServer.setBlockedIPs("192.168.1.103", "192.168.1.112", "192.168.1.120");
+    onvifServer.setBlockedIPs("192.168.1.103", "192.168.1.112", "192.168.1.120"); // blockes other devices to this device
     onvifServer.startOnvif();
   }
 }

@@ -5,6 +5,7 @@
 #include "discovery_service.h"
 #include "device_service.h"
 #include "media_service.h"
+#include "media2_service.h"
 #include "events_service.h"
 #include "imaging_service.h"
 #include "ptz_service.h"
@@ -247,12 +248,6 @@ void ONVIFServer::sendMatch(const char* messageID, const char* relatesToID, cons
                         (strcmp(action, "probe") == 0 ? "ProbeMatch" : "ResolveMatch"),
                         (strcmp(action, "probe") == 0 ? "ProbeMatches" : "ResolveMatches"))
                         );
-//  populateOnvifResponse(discoverNS, onvifMatch, messageID, relatesToID, fullAction,
-//                        (strcmp(action, "probe") == 0 ? "ProbeMatches" : "ResolveMatches"),
-//                        (strcmp(action, "probe") == 0 ? "ProbeMatch" : "ResolveMatch"),
-//                        deviceUUID, location, name, hardware, ipAddress,
-//                        (strcmp(action, "probe") == 0 ? "ProbeMatch" : "ResolveMatch"),
-//                        (strcmp(action, "probe") == 0 ? "ProbeMatches" : "ResolveMatches"));
 }
 
 void ONVIFServer::sendMessage(const char* messageType) {
@@ -262,22 +257,6 @@ void ONVIFServer::sendMessage(const char* messageType) {
   //populateOnvifResponse(discoverNS, messageType, messageID, deviceUUID, location, name, hardware, ipAddress);
   sendto(sock, (char*)onvifBuffer, strlen((char*)onvifBuffer), 0, (const struct sockaddr*)&addr, sizeof(addr));
 }
-
-// bool extractValue(const char* xml, const char* tag, int& value) {
-//   const char* start = strstr(xml, tag);
-//   if (start) {
-//     start = strchr(start, '>') + 1;
-//     const char* end = strchr(start, '<');
-//     if (end) {
-//       char buffer[16];
-//       strncpy(buffer, start, end - start);
-//       buffer[end - start] = '\0';
-//       value = atoi(buffer);
-//       return true;
-//     }
-//   }
-//   return false;
-// }
 
 bool extractValue(const char* xml, const char* tag, int& value) {
   char openTag[64];
@@ -572,6 +551,10 @@ void ONVIFServer::handleMediaService(const char* action) {
 void ONVIFServer::handleMedia2Service(const char* action) {
   if (strcmp(action, "GetProfiles") == 0) {
     populateOnvifResponse(mediaHeader, getProfilesMedia2);
+  } else if (strstr(action, "GetStreamUri")) {
+    populateOnvifResponse(mediaHeader, getStreamUri2, ipAddress);
+  } else if (strstr(action, "GetSnapshotUri")) {
+    populateOnvifResponse(mediaHeader, getSnapshotUri2, ipAddress);
   } else {
     snprintf((char*)onvifBuffer, ONVIF_BUFFER_SIZE, "UNKNOWN");
   }

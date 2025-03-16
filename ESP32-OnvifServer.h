@@ -14,6 +14,9 @@
 #define ONVIF_PARTS_BUFFER_SIZE (1024 * 2)
 #define ONVIF_STACK_SIZE (1024 * 8)
 #define ONVIF_PRI 1
+#define MAX_ALLOWED_CONTENT_SIZE 4096 // 4 KB
+//#define MAX_ALLOWED_CONTENT_SIZE 8192 // 8 KB
+
 
 // Definitions for logging
 #define LOG_ERR(format, ...) ESP_LOGE("ONVIF", format, ##__VA_ARGS__)
@@ -71,6 +74,7 @@ private:
   void parseSystemDateAndTime(const char* requestBody);
   void parseNetworkProtocols(const char* requestBody);
   void parseAndApplySettings(const char* requestBody);
+  void parseAndSetVideoEncoderConfiguration(const char* requestBody);
   void onvifServiceResponse(const char* uri, const char* requestBody = nullptr);
   bool isBlocked(const char* ip);
   void process_packet(const char *packet_data, size_t len, const struct sockaddr_in *sender_addr, int sock);
@@ -85,11 +89,11 @@ private:
   void setNetworkProtocol(const char* protocolName, bool enabled, int port);
 
   void handleDeviceService(const char* action, const char* requestBody);
-  void handleMediaService(const char* action);
-  void handleMedia2Service(const char* action);
+  void handleMediaService(const char* action, const char* requestBody);
+  void handleMedia2Service(const char* action, const char* requestBody);
   void handleImagingService(const char* action, const char* requestBody);
-  void handlePTZService(const char* action);
-  void handleEventService(const char* action);
+  void handlePTZService(const char* action, const char* requestBody);
+  void handleEventService(const char* action, const char* requestBody);
 
   TaskHandle_t onvifHandle;
   uint8_t* onvifBuffer;

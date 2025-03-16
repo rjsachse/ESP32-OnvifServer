@@ -225,11 +225,11 @@ const char* getVideoEncoderConfigurationOptions =
   "%s" //ResolutionsAvailable
   "<tt:FrameRateRange>"
   "<tt:Min>1</tt:Min>"
-  "<tt:Max>60</tt:Max>"
+  "<tt:Max>50</tt:Max>"
   "</tt:FrameRateRange>"
   "<tt:EncodingIntervalRange>"
   "<tt:Min>1</tt:Min>"
-  "<tt:Max>5</tt:Max>"
+  "<tt:Max>1</tt:Max>"
   "</tt:EncodingIntervalRange>"
   "</tt:JPEG>"
   "</trt:Options>"
@@ -287,3 +287,7 @@ const char* getAudioSources =
   "<tt:Channels>1</tt:Channels>"
   "</trt:AudioSources>"
   "</trt:GetAudioSourcesResponse>";
+
+const char* setVideoEncoderConfiguration = 
+  "<s:Body>"
+  "<trt:SetVideoEncoderConfigurationResponse/>";

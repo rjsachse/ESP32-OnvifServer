@@ -11,7 +11,7 @@ ONVIFServer::ONVIFServer()
     location("Home"),
     timezone("CET-1CEST,M3.5.0,M10.5.0/3"),
     enableEvents(false),
-    enablePTZ(true),
+    enablePTZ(false),
     enableAudio(true),
     enableTwoWayAudio(true),
     blockedIPCount(0), // Initialize to 0
@@ -40,8 +40,7 @@ ONVIFServer::~ONVIFServer() {
 }
 
 esp_err_t ONVIFServer::onvifHandler(httpd_req_t *req) {
-  esp_err_t ret = ESP_OK; // Initialize ret
-  uint8_t content[1500] = {0};
+  esp_err_t ret = ESP_OK;
 
   // Handle snapshot request
   if (strcmp(req->uri, "/onvif/snapshot") == 0) {
@@ -51,21 +50,51 @@ esp_err_t ONVIFServer::onvifHandler(httpd_req_t *req) {
       httpd_resp_send_500(req);
       return ESP_FAIL;
     }
-
     httpd_resp_set_type(req, "image/jpeg");
     httpd_resp_send(req, (const char *)fb->buf, fb->len);
     esp_camera_fb_return(fb);
     return ESP_OK;
   }
 
-  int received = httpd_req_recv(req, (char *)content, sizeof(content) - 1);
+  // Buffer to store the "Content-Length" header value
+  char content_length_str[16]; // Assuming maximum length of Content-Length is less than 16 characters
+
+  // Get the "Content-Length" header value
+  if (httpd_req_get_hdr_value_str(req, "Content-Length", content_length_str, sizeof(content_length_str)) != ESP_OK) {
+    LOG_ERR("Failed to get Content-Length header");
+    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing or invalid Content-Length header");
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  // Convert "Content-Length" string to size_t
+  size_t content_length = atoi(content_length_str);
+
+  if (content_length == 0 || content_length > MAX_ALLOWED_CONTENT_SIZE) { // Safeguard against invalid or oversized content
+    LOG_ERR("Invalid or too large content size: %zu bytes", content_length);
+    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid or too large content size");
+    return ESP_ERR_INVALID_SIZE;
+  }
+
+  // Dynamically allocate buffer for the content
+  uint8_t *content = (uint8_t *)malloc(content_length + 1); // +1 for null-termination
+  if (content == NULL) {
+    LOG_ERR("Failed to allocate memory for content");
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Memory allocation failed");
+    return ESP_ERR_NO_MEM;
+  }
+
+  // Receive the content
+  int received = httpd_req_recv(req, (char *)content, content_length);
   if (received <= 0) {
+    free(content); // Free the memory to avoid leaks
     if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
       httpd_resp_send_408(req);
+      ret = ESP_ERR_TIMEOUT; // Set return value for timeout
     } else {
       httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to receive request body");
+      ret = ESP_FAIL; // Set general failure return value
     }
-    return ESP_FAIL;
+    return ret;
   }
   content[received] = '\0'; // Null-terminate the received content
 
@@ -73,22 +102,30 @@ esp_err_t ONVIFServer::onvifHandler(httpd_req_t *req) {
   const char* uri = req->uri;
 
   // Generate response using the specific service URI
-  onvifServiceResponse(uri, (char*)content);
-  
-  if (strcmp((char*)onvifBuffer, "UNKNOWN") == 0) {
-    char* action = getAction((char*)content);
+  onvifServiceResponse(uri, (char *)content);
+
+  if (strcmp((char *)onvifBuffer, "UNKNOWN") == 0) {
+    char* action = getAction((char *)content);
     LOG_ERR("Unknown ONVIF Action: %s at URI: %s", action, uri);
     free(action);
+    free(content); // Free the memory before returning
     httpd_resp_send_404(req);
-    return ESP_FAIL;
+    return ESP_ERR_NOT_FOUND; // Return an error code for unknown action
   }
 
   // Set the correct Content-Type header
   httpd_resp_set_type(req, "application/soap+xml; charset=utf-8");
-  httpd_resp_send(req, (char*)onvifBuffer, HTTPD_RESP_USE_STRLEN);
+  ret = httpd_resp_send(req, (char *)onvifBuffer, HTTPD_RESP_USE_STRLEN);
+  
+  // Check if the response was successfully sent
+  if (ret != ESP_OK) {
+    LOG_ERR("Failed to send response: %d", ret);
+  }
 
-  return ESP_OK;
+  free(content); // Free the allocated memory after use
+  return ret; // Return the final result
 }
+
 
 void ONVIFServer::setup_onvif_server(httpd_handle_t server) {
   // Handler for HTTP_POST method

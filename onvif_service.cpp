@@ -10,71 +10,66 @@
 #include "imaging_service.h"
 #include "ptz_service.h"
 
-//#include <vector>
+// const char* ONVIFServer::getResolutions() {
+//   sensor_t *s = esp_camera_sensor_get();
+//   if (!s) {
+//     LOG_ERR("Camera sensor not detected");
+//     return nullptr;
+//   }
+//   std::vector<Resolution> resolutions = getCameraResolutions(static_cast<camera_pid_t>(s->id.PID));
 
-std::vector<ONVIFServer::Resolution> ONVIFServer::getCameraResolutions(camera_pid_t pid) {
-  switch (pid) {
-    case OV9650_PID:
-    case OV3660_PID:
-    case OV2640_PID:
-    case OV7670_PID:
-    case NT99141_PID:
-    case GC2145_PID:
-    case GC032A_PID:
-    case GC0308_PID:
-    case BF3005_PID:
-    case BF20A6_PID:
-    case SC101IOT_PID:
-    case SC030IOT_PID:
-    case SC031GS_PID:
-      return {
-        {2592, 1944}, {1600, 1200}, {1280, 1024}, {1280, 720}, 
-        {1024, 768}, {800, 600}, {640, 480}, {320, 240}, 
-        {240, 240}, {320, 320}, {400, 296}, {480, 320}, 
-        {176, 144}, {160, 120}, {128, 128}, {96, 96}
-      };
-    case OV5640_PID:
-    case MEGA_CCM_PID:
-      return {
-        {2592, 1944}, {2560, 1920}, {2560, 1600}, {2560, 1440}, 
-        {2048, 1536}, {1920, 1080}, {1600, 1200}, {1280, 1024}, 
-        {1280, 720}, {1024, 768}, {800, 600}, {720, 1280}, 
-        {640, 480}, {480, 320}, {320, 240}, {240, 240}, 
-        {320, 320}, {400, 296}, {176, 144}, {160, 120}, 
-        {128, 128}, {96, 96}
-      };
-    case OV7725_PID:
-      return {
-        {640, 480}, {320, 240}, {240, 240}, {320, 320}, 
-        {400, 296}, {480, 320}, {176, 144}, {160, 120}, 
-        {128, 128}, {96, 96}
-      };
-    default:
-      return {};
-  }
-}
+//   static char resolutionsXml[2560] = "";
+//   char resolutionEntry[110];
+
+//   resolutionsXml[0] = '\0'; // Clear the string
+
+//   for (const auto& res : resolutions) {
+//     snprintf(resolutionEntry, sizeof(resolutionEntry), 
+//       "<tt:ResolutionsAvailable>"
+//       "<tt:Width>%d</tt:Width>"
+//       "<tt:Height>%d</tt:Height>"
+//       "</tt:ResolutionsAvailable>", 
+//       res.width, res.height);
+//     strncat(resolutionsXml, resolutionEntry, sizeof(resolutionsXml) - strlen(resolutionsXml) - 1);
+//   }
+//   return resolutionsXml;
+// }
 
 const char* ONVIFServer::getResolutions() {
   sensor_t *s = esp_camera_sensor_get();
   if (!s) {
-    LOG_ERR("Camera sensor not detected");
-    return nullptr;
+      LOG_ERR("Camera sensor not detected");
+      return nullptr;
   }
-  std::vector<Resolution> resolutions = getCameraResolutions(static_cast<camera_pid_t>(s->id.PID));
 
+  // Get the sensor information
+  camera_sensor_info_t* info = esp_camera_sensor_get_info(&s->id);
+  if (!info) {
+      LOG_ERR("Failed to get sensor information");
+      return nullptr;
+  }
+
+  // Get the resolutions
+  std::vector<resolution_info_t> resolutions;
+  framesize_t max_size = info->max_size;
+  for (int fs = 0; fs <= max_size; ++fs) {
+      resolutions.push_back(resolution[fs]);
+  }
+
+  // Generate XML string
   static char resolutionsXml[2560] = "";
   char resolutionEntry[110];
 
   resolutionsXml[0] = '\0'; // Clear the string
 
   for (const auto& res : resolutions) {
-    snprintf(resolutionEntry, sizeof(resolutionEntry), 
-      "<tt:ResolutionsAvailable>"
-      "<tt:Width>%d</tt:Width>"
-      "<tt:Height>%d</tt:Height>"
-      "</tt:ResolutionsAvailable>", 
-      res.width, res.height);
-    strncat(resolutionsXml, resolutionEntry, sizeof(resolutionsXml) - strlen(resolutionsXml) - 1);
+      snprintf(resolutionEntry, sizeof(resolutionEntry), 
+          "<tt:ResolutionsAvailable>"
+          "<tt:Width>%d</tt:Width>"
+          "<tt:Height>%d</tt:Height>"
+          "</tt:ResolutionsAvailable>", 
+          res.width, res.height);
+      strncat(resolutionsXml, resolutionEntry, sizeof(resolutionsXml) - strlen(resolutionsXml) - 1);
   }
   return resolutionsXml;
 }
@@ -142,34 +137,158 @@ void ONVIFServer::generateDeviceUUID(char* uuid, size_t uuidSize) {
            (unsigned long)(chipId));
 }
 
-char* ONVIFServer::getAction(const char* requestBody) {
-  char* action = NULL;
+char* skipNamespace(const char* tag) {
+    //LOG_INF("[ONVIF] Skipping namespace for tag: %s", tag);
+
+    const char* colon = strchr(tag, ':');
+    const char* space = strchr(tag, ' ');
+    const char* slash = strchr(tag, '/');
+
+    // Determine the nearest invalid character after the colon
+    const char* boundary = tag + strlen(tag); // Default to the end of the string
+    if (space && space < boundary) {
+        boundary = space;
+    }
+    if (slash && slash < boundary) {
+        boundary = slash;
+    }
+
+    // Check if the colon is valid (i.e., before the boundary)
+    if (colon && colon < boundary) {
+        //LOG_INF("[ONVIF] Namespace found, skipping to: %s", colon + 1);
+        return (char*)(colon + 1); // Skip past the colon
+    }
+
+    //LOG_INF("[ONVIF] No namespace found, using tag: %s", tag);
+    return (char*)tag; // No namespace, return the original tag
+}
+
+
+
+char* findBodyStart(const char* requestBody) {
+  //LOG_INF("Finding <Body> tag in request body.");
+
   char* body_start = strstr((char*)requestBody, ":Body");
   if (body_start) {
-    // Move to end of <*:Body ...>
-    body_start = strchr(body_start, '>');
+    body_start = strchr(body_start, '>'); // Find '>'
     if (body_start) {
-      body_start++; // Move past '>'
-      char* action_start = strstr(body_start, "<");
-      if (action_start) {
-        action_start++;
-        char* action_end = strchr(action_start, ' ');
-        if (!action_end) {
-          action_end = strchr(action_start, '>');
-        }
-        if (action_end) {
-          size_t action_len = action_end - action_start;
-          action = (char*)malloc(action_len + 1);
-          if (action) {
-            strncpy(action, action_start, action_len);
-            action[action_len] = '\0';
-          }
-        }
-      }
+      //LOG_INF("Found <Body> tag, moving to content at: %s", body_start + 1);
+      return body_start + 1; // Move past '>'
     }
   }
+  
+  //LOG_INF("No <Body> tag found.");
+  return NULL; // Body tag not found
+}
+
+char* extractAction(char* body_start) {
+  //LOG_INF("[ONVIF] Extracting action from body content: %s", body_start);
+
+  // Locate the opening of the action tag
+  char* action_start = strstr(body_start, "<");
+  if (action_start) {
+    action_start++; // Move past '<'
+    //LOG_INF("[ONVIF] Found action start: %s", action_start);
+
+    // Locate the closing angle bracket ('>') to isolate just the main tag
+    char* tag_end = strchr(action_start, '>');
+    if (tag_end) {
+      *tag_end = '\0'; // Temporarily null-terminate the tag for processing
+    } else {
+      //LOG_INF("[ONVIF] No closing bracket found for action tag.");
+      return NULL;
+    }
+
+    // Skip namespace prefix, if present
+    action_start = skipNamespace(action_start);
+
+    if (tag_end) {
+      *tag_end = '>'; // Restore the original string after processing
+    }
+
+    // Ensure the tag ends correctly (no nested content included)
+    char* action_end = strpbrk(action_start, " />"); // Stop at space, '/', or end
+    if (action_end) {
+      size_t action_len = action_end - action_start;
+      char* action = (char*)malloc(action_len + 1);
+      if (action) {
+        strncpy(action, action_start, action_len);
+        action[action_len] = '\0'; // Null-terminate the action name
+        //LOG_INF("[ONVIF] Successfully extracted action: %s", action);
+        return action;
+      } else {
+        LOG_INF("[ONVIF] Memory allocation failed for action.");
+      }
+    } else {
+      LOG_INF("[ONVIF] No valid end of action tag found.");
+    }
+  } else {
+    LOG_INF("[ONVIF] No action tag found in body.");
+  }
+
+  return NULL; // Action tag not found or invalid
+}
+
+
+
+
+char* ONVIFServer::getAction(const char* requestBody) {
+  //LOG_INF("Starting action extraction for request body.");
+
+  // Step 1: Find the start of the <Body> section
+  char* body_start = findBodyStart(requestBody);
+  if (!body_start) {
+    LOG_INF("Failed to find <Body> section.");
+    return NULL; // No <Body> tag found
+  }
+
+  // Step 2: Extract the action name from the <Body> section
+  char* action = extractAction(body_start);
+  if (!action) {
+    LOG_INF("Failed to extract action from body content.");
+  }
+
   return action;
 }
+
+
+// char* ONVIFServer::getAction(const char* requestBody) {
+//   char* action = NULL;
+
+//   // Locate the <*:Body> tag
+//   char* body_start = strstr((char*)requestBody, ":Body");
+//   if (body_start) {
+//     body_start = strchr(body_start, '>'); // Move to the end of <*:Body>
+//     if (body_start) {
+//       body_start++; // Move past '>'
+
+//       // Locate the opening tag of the action
+//       char* action_start = strstr(body_start, "<");
+//       if (action_start) {
+//         action_start++; // Move past '<'
+
+//         // Skip namespace prefix (e.g., "tds:")
+//         char* colon = strchr(action_start, ':');
+//         if (colon && colon < strchr(action_start, ' ') && colon < strchr(action_start, '>')) {
+//           action_start = colon + 1; // Move past the colon
+//         }
+
+//         // Find the end of the action tag name
+//         char* action_end = strpbrk(action_start, " />"); // Stop at space, '/', or '>'
+//         if (action_end) {
+//           size_t action_len = action_end - action_start;
+//           action = (char*)malloc(action_len + 1);
+//           if (action) {
+//             strncpy(action, action_start, action_len);
+//             action[action_len] = '\0'; // Null-terminate the action string
+//           }
+//         }
+//       }
+//     }
+//   }
+
+//   return action;
+// }
 
 void ONVIFServer::populateOnvifResponse(const char* mainHeader, const char* templateStr, ...) {
   if (onvifBuffer == NULL) {
@@ -259,16 +378,17 @@ void ONVIFServer::sendMessage(const char* messageType) {
 }
 
 bool extractValue(const char* xml, const char* tag, int& value) {
-  char openTag[64];
-  char closeTag[64];
+  char openTag[128];
+  char closeTag[128];
 
   // Construct the full opening and closing tags
-  snprintf(openTag, sizeof(openTag), "<%s>", tag);
+  snprintf(openTag, sizeof(openTag), "<%s", tag);
   snprintf(closeTag, sizeof(closeTag), "</%s>", tag);
 
   const char* start = strstr(xml, openTag);
   if (start) {
-    start += strlen(openTag); // Move the pointer past the opening tag
+    // Move the pointer past the opening tag and any attributes
+    start = strchr(start, '>') + 1;
     const char* end = strstr(start, closeTag);
     if (end) {
       char buffer[16];
@@ -436,6 +556,30 @@ void ONVIFServer::parseAndApplySettings(const char* requestBody) {
   }
 }
 
+void ONVIFServer::parseAndSetVideoEncoderConfiguration(const char* requestBody) {
+  int width, height, quality, frameRateLimit;
+
+  // Extract and log Resolution
+  if (!extractValue(requestBody, "Width", width) || !extractValue(requestBody, "Height", height)) {
+    LOG_ERR("Failed to extract Resolution");
+  }
+  LOG_INF("Extracted Resolution: %dx%d", width, height);
+
+  // Extract and log Quality
+  if (!extractValue(requestBody, "Quality", quality)) {
+    LOG_ERR("Failed to extract Quality");
+  }
+  LOG_INF("Extracted Quality: %d", quality);
+
+  // Extract and log FrameRateLimit
+  if (!extractValue(requestBody, "FrameRateLimit", frameRateLimit)) {
+    LOG_ERR("Failed to extract FrameRateLimit");
+  }
+  LOG_INF("Extracted FrameRateLimit: %d", frameRateLimit);
+
+  // Apply the extracted settings
+  // Implement the logic to set the video encoder configuration on the device
+}
 
 void ONVIFServer::handleDeviceService(const char* action, const char* requestBody) {
   if (strstr(action, "GetDeviceInformation")) {
@@ -518,15 +662,15 @@ void ONVIFServer::handleDeviceService(const char* action, const char* requestBod
   }
 }
 
-void ONVIFServer::handleMediaService(const char* action) {
+void ONVIFServer::handleMediaService(const char* action, const char* requestBody) {
   if (strcmp(action, "GetProfile") == 0) {
-    populateOnvifResponse(mediaHeader, getProfiles, "Profile", "Profile", "Profile", "Profile");
+    populateOnvifResponse(maxHeader, getProfiles, "Profile", "Profile", "Profile", "Profile");
   } else if (strcmp(action, "GetProfiles") == 0) {
-    populateOnvifResponse(mediaHeader, getProfiles, "Profiles", "Profiles", "Profiles", "Profiles");
+    populateOnvifResponse(maxHeader, getProfiles, "Profiles", "Profiles", "Profiles", "Profiles");
   } else if (strstr(action, "GetStreamUri")) {
-    populateOnvifResponse(mediaHeader, getStreamUri, ipAddress);
+    populateOnvifResponse(maxHeader, getStreamUri, ipAddress);
   } else if (strstr(action, "GetSnapshotUri")) {
-    populateOnvifResponse(mediaHeader, getSnapshotUri, ipAddress);
+    populateOnvifResponse(maxHeader, getSnapshotUri, ipAddress);
   } else if (strstr(action, "GetVideoSources")) {
     populateOnvifResponse(maxHeader, getVideoSources);
   } else if (strstr(action, "GetVideoSourceConfiguration")) {
@@ -534,27 +678,53 @@ void ONVIFServer::handleMediaService(const char* action) {
   } else if (strstr(action, "GetVideoEncoderConfigurationOptions")) {
     buildOnvifResponse(maxHeader, populateSection(getVideoEncoderConfigurationOptions, getResolutions()));
   } else if (strstr(action, "GetAudioDecoderConfigurations")) {
-    populateOnvifResponse(mediaHeader, getAudioDecoderConfigurations);
+    populateOnvifResponse(maxHeader, getAudioDecoderConfigurations);
   } else if (strstr(action, "GetAudioSources")) {
-    populateOnvifResponse(mediaHeader, getAudioSources);
+    populateOnvifResponse(maxHeader, getAudioSources);
   } else if (strstr(action, "GetAudioOutputConfiguration")) {
-    populateOnvifResponse(mediaHeader, getAudioOutputConfiguration);
+    populateOnvifResponse(maxHeader, getAudioOutputConfiguration);
   } else if (strstr(action, "GetAudioOutputConfigurationOptions")) {
-    populateOnvifResponse(mediaHeader, getAudioOutputConfigurationOptions);
+    populateOnvifResponse(maxHeader, getAudioOutputConfigurationOptions);
   } else if (strstr(action, "GetAudioOutputConfigurations")) {
-    populateOnvifResponse(mediaHeader, getAudioOutputConfigurations);
+    populateOnvifResponse(maxHeader, getAudioOutputConfigurations);
+  } else if (strstr(action, "SetVideoEncoderConfiguration")) {
+    parseAndSetVideoEncoderConfiguration(requestBody);
+    populateOnvifResponse(maxHeader, setVideoEncoderConfiguration);
   } else {
     snprintf((char*)onvifBuffer, ONVIF_BUFFER_SIZE, "UNKNOWN");
   }
 }
 
-void ONVIFServer::handleMedia2Service(const char* action) {
+void ONVIFServer::handleMedia2Service(const char* action, const char* requestBody) {
   if (strcmp(action, "GetProfiles") == 0) {
-    populateOnvifResponse(mediaHeader, getProfilesMedia2);
+    populateOnvifResponse(maxHeader, getProfilesMedia2);
   } else if (strstr(action, "GetStreamUri")) {
-    populateOnvifResponse(mediaHeader, getStreamUri2, ipAddress);
+    populateOnvifResponse(maxHeader, getStreamUri2, ipAddress);
   } else if (strstr(action, "GetSnapshotUri")) {
-    populateOnvifResponse(mediaHeader, getSnapshotUri2, ipAddress);
+    populateOnvifResponse(maxHeader, getSnapshotUri2, ipAddress);
+  } else if (strstr(action, "GetVideoSourceConfigurations")) {
+    populateOnvifResponse(maxHeader, getVideoSourceConfigurations2);
+  } else if (strstr(action, "GetVideoEncoderConfigurations")) {
+    populateOnvifResponse(maxHeader, getVideoEncoderConfigurations2);
+  } else if (strstr(action, "GetAudioDecoderConfigurations")) {
+    populateOnvifResponse(maxHeader, getAudioDecoderConfigurations2);
+  } else if (strstr(action, "GetAudioEncoderConfigurations")) {
+    populateOnvifResponse(maxHeader, getAudioEncoderConfigurations2);
+  } else if (strstr(action, "GetAudioDecoderConfigurationOptions")) {
+    populateOnvifResponse(maxHeader, getAudioDecoderConfigurationOptions2);
+  } else if (strstr(action, "GetAudioEncoderConfigurationOptions")) {
+    populateOnvifResponse(maxHeader, getAudioEncoderConfigurationOptions2);
+  } else if (strstr(action, "GetAudioOutputConfigurations")) {
+    populateOnvifResponse(maxHeader, getAudioOutputConfigurations2);
+  } else if (strstr(action, "GetAudioOutputConfigurationOptions")) {
+    populateOnvifResponse(maxHeader, getAudioOutputConfigurationOptions2);
+  } else if (strstr(action, "GetAudioInputConfigurations")) {
+    populateOnvifResponse(maxHeader, getAudioInputConfigurations2);
+  } else if (strstr(action, "SetAudioInputConfiguration")) {
+    // Implement logic to set audio input configuration based on requestBody
+    populateOnvifResponse(maxHeader, setAudioInputConfiguration2);
+  } else if (strstr(action, "GetAudioSourceConfigurations")) {
+    populateOnvifResponse(maxHeader, getAudioSourceConfigurations2);
   } else {
     snprintf((char*)onvifBuffer, ONVIF_BUFFER_SIZE, "UNKNOWN");
   }
@@ -594,7 +764,7 @@ void ONVIFServer::handleImagingService(const char* action, const char* requestBo
   }
 }
 
-void ONVIFServer::handlePTZService(const char* action) {
+void ONVIFServer::handlePTZService(const char* action, const char* requestBody) {
   if (strstr(action, "GetNodes")) {
     populateOnvifResponse(ptzHeader, getNodes);
   } else if (strstr(action, "GetConfigurations")) {
@@ -604,7 +774,7 @@ void ONVIFServer::handlePTZService(const char* action) {
   }
 }
 
-void ONVIFServer::handleEventService(const char* action) {
+void ONVIFServer::handleEventService(const char* action, const char* requestBody) {
   char currentTime[32], terminationTime[32], utcTime[32];
   time_t now = time(NULL);
   struct tm timeinfo;
@@ -636,26 +806,33 @@ void ONVIFServer::handleEventService(const char* action) {
 void ONVIFServer::onvifServiceResponse(const char* uri, const char* requestBody) {
   // Extract action from requestBody
   char* action = getAction(requestBody);
-  
-  LOG_INF("Onvif request: %s at URI: %s", action, uri);
+
+  // Safely log the action and URI
+  if (action && uri) {
+    LOG_INF("Onvif request: %s at URI: %s", action, uri);
+  } else if (uri) {
+    LOG_INF("Onvif request: [No Action] at URI: %s", uri);
+  } else {
+    LOG_INF("Onvif request: [No Action or URI]");
+  }
 
   if (action) {
     if (strstr(uri, "/device_service")) {
       handleDeviceService(action, requestBody);
     } else if (strstr(uri, "/media_service")) {
-      handleMediaService(action);
+      handleMediaService(action, requestBody);
     } else if (strstr(uri, "/media2_service")) {
-      handleMedia2Service(action);
+      handleMedia2Service(action, requestBody);
     } else if (strstr(uri, "/image_service")) {
       handleImagingService(action, requestBody);
     } else if (strstr(uri, "/ptz_service")) {
-      handlePTZService(action);
+      handlePTZService(action, requestBody);
     } else if (strstr(uri, "/event_service")) {
-      handleEventService(action);
+      handleEventService(action, requestBody);
     } else {
       snprintf((char*)onvifBuffer, ONVIF_BUFFER_SIZE, "UNKNOWN");
     }
-    free(action);
+    free(action); // Free the allocated memory for action
   }
 }
 

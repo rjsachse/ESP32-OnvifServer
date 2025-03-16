@@ -582,6 +582,6 @@ const char* getSystemDateAndTime =
   "</tds:SystemDateAndTime>"
   "</tds:GetSystemDateAndTimeResponse>";
 
-const char* setSystemDateAndTime = // Not Added Yet !!!
+const char* setSystemDateAndTime =
   "<s:Body>"
   "<tds:SetSystemDateAndTimeResponse/>";

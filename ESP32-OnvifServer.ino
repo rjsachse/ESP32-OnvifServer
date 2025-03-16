@@ -3,6 +3,8 @@
 #include "ESP32-OnvifServer.h"
 #include "esp_camera.h"
 
+#include "audioConverter.h"
+
 // ===================
 // Select camera model
 // ===================
@@ -15,10 +17,10 @@
 //#define CAMERA_MODEL_M5STACK_ESP32CAM // No PSRAM
 //#define CAMERA_MODEL_M5STACK_UNITCAM // No PSRAM
 //#define CAMERA_MODEL_M5STACK_CAMS3_UNIT  // Has PSRAM
-#define CAMERA_MODEL_AI_THINKER // Has PSRAM
+//#define CAMERA_MODEL_AI_THINKER // Has PSRAM
 //#define CAMERA_MODEL_TTGO_T_JOURNAL // No PSRAM
 //#define CAMERA_MODEL_XIAO_ESP32S3 // Has PSRAM
-//#define CAMERA_MODEL_XENOIONEX // Has PSRAM Custom Board
+#define CAMERA_MODEL_XENOIONEX // Has PSRAM Custom Board
 // ** Espressif Internal Boards **
 //#define CAMERA_MODEL_ESP32_CAM_BOARD
 //#define CAMERA_MODEL_ESP32S2_CAM_BOARD
@@ -30,10 +32,10 @@
 // ===========================
 // Enter your WiFi credentials
 // ===========================
-//const char *ssid = "WiFi-E0C99C";
-//const char *password = "11444305";
-  const char *ssid = "PrettyFlyForWifi";
-  const char *password = "Mynetwork13!";
+const char *ssid = "WiFi-E0C99C";
+const char *password = "11444305";
+  // const char *ssid = "PrettyFlyForWifi";
+  // const char *password = "Mynetwork13!";
 
 // RTSPServer instance
 RTSPServer rtspServer;
@@ -46,21 +48,29 @@ const char *rtspUser = "";
 const char *rtspPassword = "";
 
 // Define HAVE_AUDIO to include audio-related code
-//#define HAVE_AUDIO // Comment out if don't have audio
-
-//#define OVERRIDE_RTSP_SINGLE_CLIENT_MODE // Override the default behavior of allowing only one client for unicast or TCP
-//#define RTSP_VIDEO_NONBLOCK // Enable non-blocking video streaming by creating a separate task for video streaming, preventing it from blocking the main sketch.
-//#define RTSP_LOGGING_ENABLED //Also enable "Core Debug Level" to "Info" in Tools -> Core Debug Level to enable logging
+#define HAVE_AUDIO // Comment out if don't have audio
 
 #ifdef HAVE_AUDIO
 #include <ESP_I2S.h>
 // I2SClass object for I2S communication
 I2SClass I2S;
 
-// I2S pins configuration
-#define I2S_SCK          4  // Serial Clock (SCK) or Bit Clock (BCLK)
-#define I2S_WS           5  // Word Select (WS) or Left Right Clock (LRCLK)
-#define I2S_SDI          6  // Serial Data In (Mic)
+#ifndef I2S_SCK
+#define I2S_SCK 12  // Serial Clock (SCK) or Bit Clock (BCLK)
+#endif
+
+#ifndef I2S_WS
+#define I2S_WS 4  // Word Select (WS) or Left Right Clock (LRCLK)
+#endif
+
+#ifndef I2S_SDI
+#define I2S_SDI 16  // Serial Data In (Mic)
+#endif
+
+#ifndef I2S_SDO
+#define I2S_SDO 13  // Serial Data Out (Amp)
+#endif
+
 
 // Audio variables
 int sampleRate = 16000;      // Sample rate in Hz
@@ -181,8 +191,8 @@ void getFrameQuality() {
 static bool setupMic() {
   bool res;
   // I2S mic and I2S amp can share same I2S channel
-  I2S.setPins(I2S_SCK, I2S_WS, -1, I2S_SDI, -1); // BCLK/SCK, LRCLK/WS, SDOUT, SDIN, MCLK
-  res = I2S.begin(I2S_MODE_STD, sampleRate, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO, I2S_STD_SLOT_LEFT);
+  I2S.setPins(I2S_SCK, I2S_WS, I2S_SDO, I2S_SDI); // BCLK/SCK, LRCLK/WS, SDOUT, SDIN, MCLK
+  res = I2S.begin(I2S_MODE_STD, sampleRate, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO);
   if (sampleBuffer == NULL) sampleBuffer = (int16_t*)malloc(sampleBytes);
   return res;
 }
@@ -211,6 +221,28 @@ void sendAudio(void* pvParameters) {
     }
     vTaskDelay(pdMS_TO_TICKS(1)); // Delay for 1 second 
   }
+}
+
+// Callback function to handle received audio
+// void receivedAudio(const int16_t* l16Data, size_t len) {
+//   // Example: Play received audio (implement your playback logic here)
+//   Serial.printf("Received audio data of length: %d\n", len);
+//   size_t bytesWritten = I2S.write(l16Data, len);
+//   Serial.printf("Sent %d bytes of audio data to I2S.\n", bytesWritten);
+//   // Add code to send l16Data to a speaker or other output device
+// }
+void receivedAudio(const int16_t* l16Data, size_t len) {
+    // Cast l16Data (int16_t*) to uint8_t* because I2S.write expects uint8_t*
+    const uint8_t* audioBuffer = reinterpret_cast<const uint8_t*>(l16Data);
+
+    // Calculate the byte size (len is in number of samples, each sample is 2 bytes for int16_t)
+    size_t byteLen = len * sizeof(int16_t);
+
+    // Write the audio data to the I2S device
+    size_t bytesWritten = I2S.write(audioBuffer, byteLen);
+
+    // Log the number of bytes written
+    Serial.printf("Sent %d bytes of audio data to I2S.\n", bytesWritten);
 }
 
 #endif
@@ -334,6 +366,8 @@ void setup() {
   } else {
     Serial.println("Mic Setup Failed!");
   }
+    // Pass the callback to the RTSP server for handling received audio
+  rtspServer.setAudioReceiveCallback(receivedAudio);
 #endif
 
   // Create tasks for sending video, and subtitles

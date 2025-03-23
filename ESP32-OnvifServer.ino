@@ -3,8 +3,6 @@
 #include "ESP32-OnvifServer.h"
 #include "esp_camera.h"
 
-#include "audioConverter.h"
-
 // ===================
 // Select camera model
 // ===================
@@ -183,6 +181,7 @@ void getFrameQuality() {
 }
 
 #ifdef HAVE_AUDIO
+ESP32SpeexDSP* rtspAudioProcessor = nullptr;
 /** 
  * @brief Sets up the I2S microphone. 
  * 
@@ -211,16 +210,42 @@ static size_t micInput() {
 /**
  * @brief Task to send audio data via RTP. 
  */
-void sendAudio(void* pvParameters) { 
-  while (true) { 
-    size_t bytesRead = 0;
-    if(rtspServer.readyToSendAudio()) {
-      bytesRead = micInput();
-      if (bytesRead) rtspServer.sendRTSPAudio(sampleBuffer, bytesRead);
-      else Serial.println("No audio Recieved");
+// void sendAudio(void* pvParameters) { 
+//   while (true) { 
+//     size_t bytesRead = 0;
+//     if(rtspServer.readyToSendAudio()) {
+//       bytesRead = micInput();
+//       if (bytesRead) {
+//         rtspServer.sendRTSPAudio(sampleBuffer, bytesRead);
+//         // Write mic data to ring buffer for AEC reference
+//         size_t samples = bytesRead / 2;
+//         if (rtspAudioProcessor) {
+//           rtspAudioProcessor->writeBuffer(sampleBuffer, samples);
+//         }
+//       }
+//       else Serial.println("No audio Recieved");
+//     }
+//     vTaskDelay(pdMS_TO_TICKS(1)); // Delay for 1 second 
+//   }
+// }
+
+void sendAudio(void* pvParameters) {
+    while (true) {
+        if (rtspServer.readyToSendAudio()) {
+            size_t bytesRead = micInput();
+            if (bytesRead) {
+                rtspServer.sendRTSPAudio(sampleBuffer, bytesRead);
+                if (rtspAudioProcessor) {
+                    size_t samples = bytesRead / 2;
+                    rtspAudioProcessor->writeBuffer(sampleBuffer, samples);
+                    Serial.printf("Mic to Buffer: %d samples\n", samples);
+                }
+            } else {
+                Serial.println("No audio Received");
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
-    vTaskDelay(pdMS_TO_TICKS(1)); // Delay for 1 second 
-  }
 }
 
 // Callback function to handle received audio
@@ -231,18 +256,24 @@ void sendAudio(void* pvParameters) {
 //   Serial.printf("Sent %d bytes of audio data to I2S.\n", bytesWritten);
 //   // Add code to send l16Data to a speaker or other output device
 // }
+// void receivedAudio(const int16_t* l16Data, size_t len) {
+//     // Cast l16Data (int16_t*) to uint8_t* because I2S.write expects uint8_t*
+//     const uint8_t* audioBuffer = reinterpret_cast<const uint8_t*>(l16Data);
+//     // Calculate the byte size (len is in number of samples, each sample is 2 bytes for int16_t)
+//     size_t byteLen = len * sizeof(int16_t);
+//     // Write the audio data to the I2S device
+//     size_t bytesWritten = I2S.write(audioBuffer, byteLen);
+//     // Log the number of bytes written
+//     Serial.printf("Sent %d bytes of audio data to I2S.\n", bytesWritten);
+// }
+
 void receivedAudio(const int16_t* l16Data, size_t len) {
-    // Cast l16Data (int16_t*) to uint8_t* because I2S.write expects uint8_t*
     const uint8_t* audioBuffer = reinterpret_cast<const uint8_t*>(l16Data);
-
-    // Calculate the byte size (len is in number of samples, each sample is 2 bytes for int16_t)
     size_t byteLen = len * sizeof(int16_t);
-
-    // Write the audio data to the I2S device
     size_t bytesWritten = I2S.write(audioBuffer, byteLen);
-
-    // Log the number of bytes written
-    Serial.printf("Sent %d bytes of audio data to I2S.\n", bytesWritten);
+    Serial.printf("Sent %d bytes of audio data to I2S, RMS: %.6f\n", 
+                  bytesWritten, 
+                  rtspAudioProcessor ? rtspAudioProcessor->computeRMS((int16_t*)l16Data, len) : 0.0f);
 }
 
 #endif
@@ -285,62 +316,6 @@ void onSubtitles(void* arg) {
   }
 }
 
-void printDeviceInfo() {
-  // Local function to format size
-  auto fmtSize = [](size_t bytes) -> String {
-    const char* sizes[] = { "B", "KB", "MB", "GB" };
-    int order = 0;
-    while (bytes >= 1024 && order < 3) {
-      order++;
-      bytes = bytes / 1024;
-    }
-    return String(bytes) + " " + sizes[order];
-  };
-
-  // Print device information
-  Serial.println("");
-  Serial.println("==== Device Information ====");
-  Serial.printf("ESP32 Chip ID: %llu\n", ESP.getEfuseMac());
-  Serial.printf("Flash Chip Size: %s\n", fmtSize(ESP.getFlashChipSize()).c_str());
-  if (psramFound()) {
-    Serial.printf("PSRAM Size: %s\n", fmtSize(ESP.getPsramSize()).c_str());
-  } else {
-    Serial.println("No PSRAM is found");
-  }
-  Serial.println("");
-  // Print sketch information
-  Serial.println("==== Sketch Information ====");
-  Serial.printf("Sketch Size: %s\n", fmtSize(ESP.getSketchSize()).c_str());
-  Serial.printf("Free Sketch Space: %s\n", fmtSize(ESP.getFreeSketchSpace()).c_str());
-  Serial.printf("Sketch MD5: %s\n", ESP.getSketchMD5().c_str());
-  Serial.println("");
-  // Print task information
-  Serial.println("==== Task Information ====");
-  Serial.printf("Total tasks: %u\n", uxTaskGetNumberOfTasks() - 1);
-  Serial.println("");
-  // Print network information
-  Serial.println("==== Network Information ====");
-  Serial.printf("IP Address: %s\n", WiFi.localIP().toString().c_str());
-  Serial.printf("MAC Address: %s\n", WiFi.macAddress().c_str());
-  Serial.printf("SSID: %s\n", WiFi.SSID().c_str());
-  Serial.printf("RSSI: %d dBm\n", WiFi.RSSI());
-  Serial.println("");
-  // Print RTSP server information
-  Serial.println("==== RTSP Server Information ====");
-  Serial.printf("RTSP Port: %d\n", rtspServer.rtspPort);
-  Serial.printf("Sample Rate: %lu\n", rtspServer.sampleRate); // Correct format specifier
-  Serial.printf("Transport Type: %d\n", rtspServer.transport);
-  Serial.printf("Video Port: %d\n", rtspServer.rtpVideoPort);
-  Serial.printf("Audio Port: %d\n", rtspServer.rtpAudioPort);
-  Serial.printf("Subtitles Port: %d\n", rtspServer.rtpSubtitlesPort);
-  Serial.printf("RTP IP: %s\n", rtspServer.rtpIp.toString().c_str());
-  Serial.printf("RTP TTL: %d\n", rtspServer.rtpTTL);
-  Serial.println("");
-  Serial.printf("RTSP Address: rtsp://%s:%d\n", WiFi.localIP().toString().c_str(), rtspServer.rtspPort);
-  Serial.println("==============================");
-  Serial.println("");
-}
-
 void setup() {
   // Initialize serial communication
   Serial.begin(115200);
@@ -368,6 +343,7 @@ void setup() {
   }
     // Pass the callback to the RTSP server for handling received audio
   rtspServer.setAudioReceiveCallback(receivedAudio);
+  rtspAudioProcessor = &rtspServer.getAudioProcessor();
 #endif
 
   // Create tasks for sending video, and subtitles
@@ -464,7 +440,6 @@ void setup() {
 }
 
 void loop() {
-  printDeviceInfo(); // just print out info about device
   delay(1000);
   vTaskDelete(NULL); // free 8k ram and delete the loop
 }

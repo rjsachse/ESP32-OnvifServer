@@ -54,19 +54,19 @@ const char *rtspPassword = "";
 I2SClass I2S;
 
 #ifndef I2S_SCK
-#define I2S_SCK 12  // Serial Clock (SCK) or Bit Clock (BCLK)
+#define I2S_SCK 4  // Serial Clock (SCK) or Bit Clock (BCLK)
 #endif
 
 #ifndef I2S_WS
-#define I2S_WS 4  // Word Select (WS) or Left Right Clock (LRCLK)
+#define I2S_WS 5  // Word Select (WS) or Left Right Clock (LRCLK)
 #endif
 
 #ifndef I2S_SDI
-#define I2S_SDI 16  // Serial Data In (Mic)
+#define I2S_SDI 6  // Serial Data In (Mic)
 #endif
 
 #ifndef I2S_SDO
-#define I2S_SDO 13  // Serial Data Out (Amp)
+#define I2S_SDO 7  // Serial Data Out (Amp)
 #endif
 
 
@@ -181,7 +181,6 @@ void getFrameQuality() {
 }
 
 #ifdef HAVE_AUDIO
-ESP32SpeexDSP* rtspAudioProcessor = nullptr;
 /** 
  * @brief Sets up the I2S microphone. 
  * 
@@ -190,8 +189,8 @@ ESP32SpeexDSP* rtspAudioProcessor = nullptr;
 static bool setupMic() {
   bool res;
   // I2S mic and I2S amp can share same I2S channel
-  I2S.setPins(I2S_SCK, I2S_WS, I2S_SDO, I2S_SDI); // BCLK/SCK, LRCLK/WS, SDOUT, SDIN, MCLK
-  res = I2S.begin(I2S_MODE_STD, sampleRate, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO);
+  I2S.setPins(I2S_SCK, I2S_WS, I2S_SDO, I2S_SDI, -1); // BCLK/SCK, LRCLK/WS, SDOUT, SDIN, MCLK
+  res = I2S.begin(I2S_MODE_STD, sampleRate, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO, I2S_STD_SLOT_LEFT);
   if (sampleBuffer == NULL) sampleBuffer = (int16_t*)malloc(sampleBytes);
   return res;
 }
@@ -210,70 +209,24 @@ static size_t micInput() {
 /**
  * @brief Task to send audio data via RTP. 
  */
-// void sendAudio(void* pvParameters) { 
-//   while (true) { 
-//     size_t bytesRead = 0;
-//     if(rtspServer.readyToSendAudio()) {
-//       bytesRead = micInput();
-//       if (bytesRead) {
-//         rtspServer.sendRTSPAudio(sampleBuffer, bytesRead);
-//         // Write mic data to ring buffer for AEC reference
-//         size_t samples = bytesRead / 2;
-//         if (rtspAudioProcessor) {
-//           rtspAudioProcessor->writeBuffer(sampleBuffer, samples);
-//         }
-//       }
-//       else Serial.println("No audio Recieved");
-//     }
-//     vTaskDelay(pdMS_TO_TICKS(1)); // Delay for 1 second 
-//   }
-// }
-
 void sendAudio(void* pvParameters) {
-    while (true) {
-        if (rtspServer.readyToSendAudio()) {
-            size_t bytesRead = micInput();
-            if (bytesRead) {
-                rtspServer.sendRTSPAudio(sampleBuffer, bytesRead);
-                if (rtspAudioProcessor) {
-                    size_t samples = bytesRead / 2;
-                    rtspAudioProcessor->writeBuffer(sampleBuffer, samples);
-                    Serial.printf("Mic to Buffer: %d samples\n", samples);
-                }
-            } else {
-                Serial.println("No audio Received");
-            }
-        }
-        vTaskDelay(pdMS_TO_TICKS(1));
+  while (true) {
+    if (rtspServer.readyToSendAudio()) {
+      size_t bytesRead = micInput();
+      if (bytesRead) {
+        rtspServer.sendRTSPAudio(sampleBuffer, bytesRead);
+      }
     }
+    vTaskDelay(pdMS_TO_TICKS(1));
+  }
 }
 
-// Callback function to handle received audio
-// void receivedAudio(const int16_t* l16Data, size_t len) {
-//   // Example: Play received audio (implement your playback logic here)
-//   Serial.printf("Received audio data of length: %d\n", len);
-//   size_t bytesWritten = I2S.write(l16Data, len);
-//   Serial.printf("Sent %d bytes of audio data to I2S.\n", bytesWritten);
-//   // Add code to send l16Data to a speaker or other output device
-// }
-// void receivedAudio(const int16_t* l16Data, size_t len) {
-//     // Cast l16Data (int16_t*) to uint8_t* because I2S.write expects uint8_t*
-//     const uint8_t* audioBuffer = reinterpret_cast<const uint8_t*>(l16Data);
-//     // Calculate the byte size (len is in number of samples, each sample is 2 bytes for int16_t)
-//     size_t byteLen = len * sizeof(int16_t);
-//     // Write the audio data to the I2S device
-//     size_t bytesWritten = I2S.write(audioBuffer, byteLen);
-//     // Log the number of bytes written
-//     Serial.printf("Sent %d bytes of audio data to I2S.\n", bytesWritten);
-// }
-
-void receivedAudio(const int16_t* l16Data, size_t len) {
-    const uint8_t* audioBuffer = reinterpret_cast<const uint8_t*>(l16Data);
-    size_t byteLen = len * sizeof(int16_t);
-    size_t bytesWritten = I2S.write(audioBuffer, byteLen);
-    Serial.printf("Sent %d bytes of audio data to I2S, RMS: %.6f\n", 
-                  bytesWritten, 
-                  rtspAudioProcessor ? rtspAudioProcessor->computeRMS((int16_t*)l16Data, len) : 0.0f);
+//Callback function to handle received audio
+void receivedAudio(const uint8_t* l16Data, size_t len) {
+  // Example: Play received audio (implement your playback logic here)
+  //Serial.printf("Received audio data of length: %d\n", len);
+  size_t bytesWritten = I2S.write(l16Data, len);
+  //Serial.printf("Sent %d bytes of audio data to I2S.\n", bytesWritten);
 }
 
 #endif
@@ -343,7 +296,30 @@ void setup() {
   }
     // Pass the callback to the RTSP server for handling received audio
   rtspServer.setAudioReceiveCallback(receivedAudio);
-  rtspAudioProcessor = &rtspServer.getAudioProcessor();
+
+  // Configure audio processing settings via audioProcessor
+  // Note: These settings can be adjusted dynamically in loop() or elsewhere
+
+  // Acoustic Echo Cancellation (AEC)
+  rtspServer.audioProcessor.enableAEC(true); // Enable to remove echo from mic input using speaker output
+
+  // Microphone Preprocessing
+  rtspServer.audioProcessor.enableMicNoiseSuppression(true);     // Enable to reduce background noise from mic
+  rtspServer.audioProcessor.setMicNoiseSuppressionLevel(-25);    // Set noise reduction strength (-10 to -40 dB, lower = stronger)
+  rtspServer.audioProcessor.enableMicAGC(true, 0.75f);           // Enable Automatic Gain Control to normalize mic volume (target 0.0-1.0)
+  rtspServer.audioProcessor.enableMicVAD(true);                  // Enable Voice Activity Detection to send audio only when voice is detected
+  rtspServer.audioProcessor.setMicVADThreshold(80);              // Set VAD sensitivity (0-100, higher = stricter)
+
+  // Speaker Preprocessing
+  rtspServer.audioProcessor.enableSpeakerNoiseSuppression(true); // Disable noise suppression for speaker output (optional cleanup)
+  rtspServer.audioProcessor.setSpeakerNoiseSuppressionLevel(-15); // Set speaker NS strength if enabled
+  rtspServer.audioProcessor.enableSpeakerAGC(true, 0.9f);        // Enable AGC to boost speaker volume (target 0.0-1.0)
+
+  // Advanced Adjustments (require reinitialization, use sparingly)
+  // rtspServer.audioProcessor.setSampleRate(8000, 128, 256);    // Change sample rate (e.g., 8 kHz), AEC frame, filter length
+  // rtspServer.audioProcessor.setFrameSize(128);                // Adjust frame size for processing (e.g., 128 samples)
+  // rtspServer.audioProcessor.setResamplerQuality(7);           // Set resampling quality (0-10, higher = better but slower)
+  // rtspServer.audioProcessor.resizeBuffer(2048);               // Resize ring buffer for AEC reference (in samples)
 #endif
 
   // Create tasks for sending video, and subtitles
@@ -425,7 +401,7 @@ void setup() {
   }
 #endif
 
-  // Start the HTTP server
+  // // Start the HTTP server
   httpd_handle_t server = NULL;
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.uri_match_fn = httpd_uri_match_wildcard;  // Enable wildcard matching

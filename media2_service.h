@@ -183,7 +183,7 @@ const char* getVideoSourceConfigurations2 =
   "<tr2:Name>VideoSourceConfigurationName_1</tr2:Name>"
   "<tr2:UseCount>2</tr2:UseCount>"
   "<tr2:SourceToken>VideoSourceToken_1</tr2:SourceToken>"
-  "<tr2:Bounds x=\"0\" y=\"0\" width=\"1280\" height=\"720\"/>"
+  "<tr2:Bounds x=\"0\" y=\"0\" width=\"%d\" height=\"%d\"/>"
   "</tr2:Configurations>"
   "</tr2:GetVideoSourceConfigurationsResponse>";
 
@@ -199,17 +199,54 @@ const char* getVideoEncoderConfigurations2 =
   "<tr2:UseCount>1</tr2:UseCount>"
   "<tr2:Encoding>JPEG</tr2:Encoding>"
   "<tr2:Resolution>"
-  "<tr2:Width>1280</tr2:Width>"
-  "<tr2:Height>720</tr2:Height>"
+  "<tr2:Width>%d</tr2:Width>"
+  "<tr2:Height>%d</tr2:Height>"
   "</tr2:Resolution>"
   "<tr2:RateControl>"
   "<tr2:FrameRateLimit>25</tr2:FrameRateLimit>"
   "<tr2:EncodingInterval>1</tr2:EncodingInterval>"
   "<tr2:BitrateLimit>2048</tr2:BitrateLimit>"
   "</tr2:RateControl>"
-  "<tr2:Quality>4</tr2:Quality>"
+  "<tr2:Quality>%d</tr2:Quality>"
   "</tr2:Configurations>"
   "</tr2:GetVideoEncoderConfigurationsResponse>";
+
+// const char* getVideoEncoderConfigurationOptions2 = 
+//   "<s:Body>"
+//   "<tr2:GetVideoEncoderConfigurationOptionsResponse>"
+//   "<tr2:Options>"
+//   "<tt:QualityRange>"
+//   "<tt:Min>0</tt:Min>"
+//   "<tt:Max>63</tt:Max>"
+//   "</tt:QualityRange>"
+//   "%s" //ResolutionsAvailable
+//   "<tt:FrameRateRange>"
+//   "<tt:Min>1</tt:Min>"
+//   "<tt:Max>50</tt:Max>"
+//   "</tt:FrameRateRange>"
+//   "<tt:EncodingIntervalRange>"
+//   "<tt:Min>1</tt:Min>"
+//   "<tt:Max>1</tt:Max>"
+//   "</tt:EncodingIntervalRange>"
+//   "</tr2:Options>"
+//   "</tr2:GetVideoEncoderConfigurationOptionsResponse>";
+
+const char* getVideoEncoderConfigurationOptions2 = 
+  "<s:Body>"
+  "<tr2:GetVideoEncoderConfigurationOptionsResponse>"
+  "<tr2:Options FrameRatesSupported=\"30 29 28 27 26 25 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1\" ConstantBitRateSupported=\"false\" GuaranteedFrameRateSupported=\"false\">"
+  "<tt:Encoding>JPEG</tt:Encoding>"
+  "<tt:QualityRange>"
+  "<tt:Min>0</tt:Min>"
+  "<tt:Max>63</tt:Max>"
+  "</tt:QualityRange>"
+  "%s" //ResolutionsAvailable
+  "<tt:BitrateRange>"
+  "<tt:Min>64</tt:Min>"
+  "<tt:Max>4096</tt:Max>"
+  "</tt:BitrateRange>"
+  "</tr2:Options>"
+  "</tr2:GetVideoEncoderConfigurationOptionsResponse>";
 
 const char* getAudioInputConfigurations2 = 
   "<s:Body>"

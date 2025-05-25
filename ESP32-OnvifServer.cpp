@@ -217,7 +217,7 @@ void ONVIFServer::startOnvif() {
 
   xTaskCreate([](void *pvParameters) { 
     ONVIFServer* server = reinterpret_cast<ONVIFServer*>(pvParameters); 
-    server->onvifTask(pvParameters); 
+    server->onvifTask(pvParameters);
   }, "onvifTask", ONVIF_STACK_SIZE, this, ONVIF_PRI, &onvifHandle);
 
   LOG_INF("ONVIF Started");
@@ -272,29 +272,79 @@ bool ONVIFServer::setNonBlocking(int sock) {
   return true;
 }
 
-void ONVIFServer::onvifTask(void *pvParameters) {
+void ONVIFServer::onvifTask(void* param) {
+  ONVIFServer* server = reinterpret_cast<ONVIFServer*>(param);
+  int sock = server->sock;
+  uint8_t* recv_buffer = server->onvifBuffer; // Use allocated buffer
   struct sockaddr_in client_addr;
-  char recv_buffer[2048];
-  int32_t n;
+  socklen_t addr_len = sizeof(client_addr);
+
+  // Check buffer
+  if (recv_buffer == NULL) {
+    LOG_ERR("ONVIF task: Buffer is NULL");
+    vTaskDelete(NULL);
+    return;
+  }
+
+  // Log stack and heap
+  LOG_INF("ONVIF task started, Free stack: %d, Free heap: %d", uxTaskGetStackHighWaterMark(NULL), ESP.getFreeHeap());
 
   while (1) {
-    // Handle incoming UDP packets
-    socklen_t addr_len = sizeof(client_addr);
-    n = recvfrom(sock, recv_buffer, sizeof(recv_buffer) - 1, 0, (struct sockaddr *)&client_addr, &addr_len);
+    // Validate socket
+    if (sock < 0) {
+      LOG_ERR("ONVIF task: Invalid socket");
+      vTaskDelay(100 / portTICK_PERIOD_MS);
+      continue;
+    }
+
+    // Use select for timeout
+    fd_set readfds;
+    FD_ZERO(&readfds);
+    FD_SET(sock, &readfds);
+    struct timeval tv = { .tv_sec = 0, .tv_usec = 100000 }; // 100ms timeout
+
+    int ready = select(sock + 1, &readfds, NULL, NULL, &tv);
+    if (ready < 0) {
+      LOG_ERR("ONVIF select failed: %d", errno);
+      vTaskDelay(10 / portTICK_PERIOD_MS);
+      continue;
+    }
+    if (ready == 0) {
+      vTaskDelay(1 / portTICK_PERIOD_MS);
+      continue;
+    }
+
+    // Receive packet
+    int32_t n = recvfrom(sock, recv_buffer, ONVIF_BUFFER_SIZE - 1, 0, (struct sockaddr*)&client_addr, &addr_len);
     if (n < 0) {
       if (errno != EWOULDBLOCK) {
         LOG_ERR("UDP Receive failed: errno %d", errno);
+        if (errno == ECONNRESET || errno == EBADF) {
+          close(sock);
+          sock = -1;
+          server->sock = -1;
+        }
       }
-    } else {
+      vTaskDelay(10 / portTICK_PERIOD_MS);
+      continue;
+    }
+    if (n > 0) {
       char sender_ip[INET_ADDRSTRLEN];
       inet_ntop(AF_INET, &(client_addr.sin_addr), sender_ip, INET_ADDRSTRLEN);
       if (!isBlocked(sender_ip)) {
         recv_buffer[n] = '\0';
-        process_packet(recv_buffer, n, &client_addr, sock);
+        process_packet((const char*)recv_buffer, n, &client_addr, sock);
       }
     }
+    vTaskDelay(1 / portTICK_PERIOD_MS);
+
+    // Monitor stack and heap
+    // static int counter = 0;
+    // if (++counter % 100 == 0) {
+    //   LOG_INF("ONVIF task, Free stack: %d, Free heap: %d", uxTaskGetStackHighWaterMark(NULL), ESP.getFreeHeap());
+    // }
   }
 
-  stopOnvif(); // Clean up when exiting the task
+  stopOnvif();
   vTaskDelete(NULL);
 }

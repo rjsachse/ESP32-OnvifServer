@@ -71,7 +71,75 @@ const char* ONVIFServer::getResolutions() {
           res.width, res.height);
       strncat(resolutionsXml, resolutionEntry, sizeof(resolutionsXml) - strlen(resolutionsXml) - 1);
   }
+  LOG_INF("XML: %s", resolutionsXml);
   return resolutionsXml;
+}
+
+bool setCameraFrameSize(int width, int height) {
+  // Get sensor information
+  sensor_t* s = esp_camera_sensor_get();
+  if (!s) {
+    LOG_ERR("Camera sensor not detected");
+    return false;
+  }
+
+  camera_sensor_info_t* info = esp_camera_sensor_get_info(&s->id);
+  if (!info) {
+    LOG_ERR("Failed to get sensor information");
+    return false;
+  }
+
+  // Find matching framesize_t
+  framesize_t frameSize = FRAMESIZE_INVALID;
+  for (int fs = 0; fs <= info->max_size; ++fs) {
+    if (resolution[fs].width == width && resolution[fs].height == height) {
+      frameSize = (framesize_t)fs;
+      LOG_INF("Matched framesize: %dx%d", width, height);
+      break;
+    }
+  }
+
+  if (frameSize == FRAMESIZE_INVALID) {
+    LOG_ERR("No matching framesize for resolution %dx%d", width, height);
+    return false;
+  }
+
+  // Set frame size
+  if (s->set_framesize(s, frameSize) != 0) {
+    LOG_ERR("Failed to set framesize: %dx%d", width, height);
+    return false;
+  }
+
+  LOG_INF("Camera frame size set to %dx%d", width, height);
+  return true;
+}
+
+#include <esp_camera.h>
+
+bool getResolution(uint16_t* width, uint16_t* height) {
+  // Get sensor information
+  sensor_t* s = esp_camera_sensor_get();
+  if (!s) {
+    LOG_ERR("Camera sensor not detected");
+    return false;
+  }
+  // Get the sensor information
+  camera_sensor_info_t* info = esp_camera_sensor_get_info(&s->id);
+  if (!info) {
+      LOG_ERR("Failed to get sensor information");
+      return false;
+  }
+
+  // Get current framesize and resolution
+  framesize_t frameSize = s->status.framesize;
+  if (frameSize >= FRAMESIZE_INVALID || frameSize > info->max_size) {
+    LOG_ERR("Invalid framesize: %d", frameSize);
+    return false;
+  }
+
+  *width = resolution[frameSize].width;
+  *height = resolution[frameSize].height;
+  return true;
 }
 
 void ONVIFServer::extractMessageID(const char* packetData, char* messageID, size_t messageIDSize) {
@@ -377,30 +445,149 @@ void ONVIFServer::sendMessage(const char* messageType) {
   sendto(sock, (char*)onvifBuffer, strlen((char*)onvifBuffer), 0, (const struct sockaddr*)&addr, sizeof(addr));
 }
 
+// bool extractValue(const char* xml, const char* tag, int& value) {
+//   char openTag[128];
+//   char closeTag[128];
+
+//   // Construct the full opening and closing tags
+//   snprintf(openTag, sizeof(openTag), "<%s", tag);
+//   snprintf(closeTag, sizeof(closeTag), "</%s>", tag);
+
+//   const char* start = strstr(xml, openTag);
+//   if (start) {
+//     // Move the pointer past the opening tag and any attributes
+//     start = strchr(start, '>') + 1;
+//     const char* end = strstr(start, closeTag);
+//     if (end) {
+//       char buffer[16];
+//       strncpy(buffer, start, end - start);
+//       buffer[end - start] = '\0';
+//       value = atoi(buffer);
+//       return true;
+//     }
+//   }
+//   return false;
+// }
+
 bool extractValue(const char* xml, const char* tag, int& value) {
   char openTag[128];
   char closeTag[128];
+  char nsOpenTag[128];
 
-  // Construct the full opening and closing tags
+  // Construct the tag patterns to search for: <tag>, <tt:tag>, or <:tag>
   snprintf(openTag, sizeof(openTag), "<%s", tag);
   snprintf(closeTag, sizeof(closeTag), "</%s>", tag);
+  snprintf(nsOpenTag, sizeof(nsOpenTag), "<tt:%s>", tag);
 
+  // Search for either <tag> or <tt:tag>
   const char* start = strstr(xml, openTag);
-  if (start) {
-    // Move the pointer past the opening tag and any attributes
-    start = strchr(start, '>') + 1;
-    const char* end = strstr(start, closeTag);
-    if (end) {
-      char buffer[16];
-      strncpy(buffer, start, end - start);
-      buffer[end - start] = '\0';
-      value = atoi(buffer);
-      return true;
+  if (!start) {
+    start = strstr(xml, nsOpenTag);
+    if (!start) {
+      // Try searching for tag after a colon
+      char colonTag[128];
+      snprintf(colonTag, sizeof(colonTag), ":%s>", tag);
+      start = strstr(xml, colonTag);
+      if (start) {
+        start -= 3; // Move back to include "<tt" for consistency
+      }
     }
+  }
+
+  if (start) {
+    // Move past the opening tag
+    start = strchr(start, '>') + 1;
+    if (!start) {
+      LOG_ERR("Invalid tag format for %s", tag);
+      return false;
+    }
+
+    // Find the closing tag (</tag> or </tt:tag>)
+    const char* end = strstr(start, closeTag);
+    if (!end) {
+      char nsCloseTag[128];
+      snprintf(nsCloseTag, sizeof(nsCloseTag), "</tt:%s>", tag);
+      end = strstr(start, nsCloseTag);
+    }
+
+    if (end) {
+      char buffer[32];
+      size_t len = end - start;
+      if (len >= sizeof(buffer)) {
+        LOG_ERR("Value too long for tag %s", tag);
+        return false;
+      }
+      strncpy(buffer, start, len);
+      buffer[len] = '\0';
+
+      // Remove leading/trailing whitespace
+      char* trimmed = buffer;
+      while (*trimmed == ' ' || *trimmed == '\n' || *trimmed == '\t') trimmed++;
+      char* endptr = trimmed + strlen(trimmed) - 1;
+      while (endptr > trimmed && (*endptr == ' ' || *endptr == '\n' || *endptr == '\t')) {
+        *endptr = '\0';
+        endptr--;
+      }
+
+      // Parse as float and round to nearest integer
+      float floatValue = atof(trimmed);
+      value = (int)roundf(floatValue);
+      LOG_INF("Extracted %s: %d (raw: %s)", tag, value, trimmed);
+      return true;
+    } else {
+      LOG_ERR("Closing tag for %s not found", tag);
+    }
+  } else {
+    LOG_ERR("Opening tag for %s not found", tag);
   }
   return false;
 }
 
+bool extractFloatValue(const char* xml, const char* tag, int& value) {
+  char openTag[128];
+  char closeTag[128];
+
+  // Construct the full opening and closing tags with namespace
+  snprintf(openTag, sizeof(openTag), "<%s>", tag);
+  snprintf(closeTag, sizeof(closeTag), "</%s>", tag);
+
+  const char* start = strstr(xml, openTag);
+  if (start) {
+    // Move the pointer past the opening tag
+    start += strlen(openTag);
+    const char* end = strstr(start, closeTag);
+    if (end) {
+      char buffer[32]; // Increased buffer size for safety
+      size_t len = end - start;
+      if (len >= sizeof(buffer)) {
+        LOG_ERR("Value too long for tag %s", tag);
+        return false;
+      }
+      strncpy(buffer, start, len);
+      buffer[len] = '\0';
+
+      // Remove leading/trailing whitespace
+      char* trimmed = buffer;
+      while (*trimmed == ' ' || *trimmed == '\n' || *trimmed == '\t') trimmed++;
+      char* endptr = trimmed + strlen(trimmed) - 1;
+      while (endptr > trimmed && (*endptr == ' ' || *endptr == '\n' || *endptr == '\t')) {
+        *endptr = '\0';
+        endptr--;
+      }
+
+      // Parse as float and round to nearest integer
+      float floatValue = atof(trimmed);
+      value = (int)roundf(floatValue);
+      LOG_INF("Extracted %s: %d (raw: %s)", tag, value, trimmed);
+      return true;
+    } else {
+      LOG_ERR("Closing tag %s not found", closeTag);
+    }
+  } else {
+    LOG_ERR("Opening tag %s not found", openTag);
+  }
+  return false;
+}
 
 bool extractStringValue(const char* xml, const char* tag, char* value, size_t valueSize) {
   const char* start = strstr(xml, tag);
@@ -558,18 +745,30 @@ void ONVIFServer::parseAndApplySettings(const char* requestBody) {
 
 void ONVIFServer::parseAndSetVideoEncoderConfiguration(const char* requestBody) {
   int width, height, quality, frameRateLimit;
+  LOG_INF("Received request body: %s", requestBody);
 
   // Extract and log Resolution
   if (!extractValue(requestBody, "Width", width) || !extractValue(requestBody, "Height", height)) {
     LOG_ERR("Failed to extract Resolution");
   }
   LOG_INF("Extracted Resolution: %dx%d", width, height);
+  // Set frame size using separate function
+  if (!setCameraFrameSize(width, height)) {
+    LOG_ERR("Failed to set camera frame size");
+    return;
+  }
 
   // Extract and log Quality
   if (!extractValue(requestBody, "Quality", quality)) {
     LOG_ERR("Failed to extract Quality");
   }
   LOG_INF("Extracted Quality: %d", quality);
+  // Update quality
+  sensor_t* s = esp_camera_sensor_get();
+  if (s && s->set_quality(s, quality) != 0) {
+    LOG_ERR("Failed to set JPEG quality: %d", quality);
+    return;
+  }
 
   // Extract and log FrameRateLimit
   if (!extractValue(requestBody, "FrameRateLimit", frameRateLimit)) {
@@ -703,9 +902,24 @@ void ONVIFServer::handleMedia2Service(const char* action, const char* requestBod
   } else if (strstr(action, "GetSnapshotUri")) {
     populateOnvifResponse(maxHeader, getSnapshotUri2, ipAddress);
   } else if (strstr(action, "GetVideoSourceConfigurations")) {
-    populateOnvifResponse(maxHeader, getVideoSourceConfigurations2);
+    uint16_t width, height;
+    if (getResolution(&width, &height)) {
+      populateOnvifResponse(maxHeader, getVideoSourceConfigurations2, width, height);
+    }
   } else if (strstr(action, "GetVideoEncoderConfigurations")) {
-    populateOnvifResponse(maxHeader, getVideoEncoderConfigurations2);
+    uint16_t width, height;
+    sensor_t* s = esp_camera_sensor_get();
+    if (!s) {
+      LOG_ERR("Failed to get camera sensor");
+      return;
+    }
+
+    int quality = s->status.quality;
+    if (getResolution(&width, &height)) {
+      populateOnvifResponse(maxHeader, getVideoEncoderConfigurations2, width, height, quality);
+    }
+  } else if (strstr(action, "GetVideoEncoderConfigurationOptions")) {
+    buildOnvifResponse(maxHeader, populateSection(getVideoEncoderConfigurationOptions2, getResolutions()));
   } else if (strstr(action, "GetAudioDecoderConfigurations")) {
     populateOnvifResponse(maxHeader, getAudioDecoderConfigurations2);
   } else if (strstr(action, "GetAudioEncoderConfigurations")) {
@@ -725,6 +939,9 @@ void ONVIFServer::handleMedia2Service(const char* action, const char* requestBod
     populateOnvifResponse(maxHeader, setAudioInputConfiguration2);
   } else if (strstr(action, "GetAudioSourceConfigurations")) {
     populateOnvifResponse(maxHeader, getAudioSourceConfigurations2);
+  } else if (strstr(action, "SetVideoEncoderConfiguration")) {
+    parseAndSetVideoEncoderConfiguration(requestBody);
+    populateOnvifResponse(maxHeader, setVideoEncoderConfiguration);
   } else {
     snprintf((char*)onvifBuffer, ONVIF_BUFFER_SIZE, "UNKNOWN");
   }

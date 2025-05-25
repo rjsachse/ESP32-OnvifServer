@@ -122,7 +122,7 @@ const char* getStreamUri =
   "<s:Body>"
   "<trt:GetStreamUriResponse>"
   "<trt:MediaUri>"
-  "<tt:Uri>rtsp://%s:554</tt:Uri>"
+  "<tt:Uri>rtsp://%s:%d</tt:Uri>"
   "<tt:InvalidAfterConnect>false</tt:InvalidAfterConnect>"
   "<tt:InvalidAfterReboot>false</tt:InvalidAfterReboot>"
   "<tt:Timeout>PT0S</tt:Timeout>"
@@ -147,7 +147,7 @@ const char* getVideoSourceConfiguration =
   "<tt:Name>VideoSourceConfigurationName_1</tt:Name>"
   "<tt:UseCount>2</tt:UseCount>"
   "<tt:SourceToken>VideoSourceToken_1</tt:SourceToken>"
-  "<tt:Bounds x=\"0\" y=\"0\" width=\"1280\" height=\"720\"/>"
+  "<tt:Bounds x=\"0\" y=\"0\" width=\"%d\" height=\"%d\"/>"
   "</trt:Configurations>"
   "</trt:GetVideoSourceConfigurationResponse>";
 
@@ -157,8 +157,8 @@ const char* getVideoSources =
   "<trt:VideoSources token=\"VideoSourceToken_1\">"
   "<tt:Framerate>25.0</tt:Framerate>"
   "<tt:Resolution>"
-  "<tt:Width>1280</tt:Width>"
-  "<tt:Height>720</tt:Height>"
+  "<tt:Width>%d</tt:Width>"
+  "<tt:Height>%d</tt:Height>"
   "</tt:Resolution>"
   "<tt:Imaging>"
   "<tt:BacklightCompensation>"

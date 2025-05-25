@@ -15,10 +15,10 @@
 //#define CAMERA_MODEL_M5STACK_ESP32CAM // No PSRAM
 //#define CAMERA_MODEL_M5STACK_UNITCAM // No PSRAM
 //#define CAMERA_MODEL_M5STACK_CAMS3_UNIT  // Has PSRAM
-//#define CAMERA_MODEL_AI_THINKER // Has PSRAM
+#define CAMERA_MODEL_AI_THINKER // Has PSRAM
 //#define CAMERA_MODEL_TTGO_T_JOURNAL // No PSRAM
 //#define CAMERA_MODEL_XIAO_ESP32S3 // Has PSRAM
-#define CAMERA_MODEL_XENOIONEX // Has PSRAM Custom Board
+//#define CAMERA_MODEL_XENOIONEX // Has PSRAM Custom Board
 // ** Espressif Internal Boards **
 //#define CAMERA_MODEL_ESP32_CAM_BOARD
 //#define CAMERA_MODEL_ESP32S2_CAM_BOARD
@@ -46,7 +46,7 @@ const char *rtspUser = "";
 const char *rtspPassword = "";
 
 // Define HAVE_AUDIO to include audio-related code
-#define HAVE_AUDIO // Comment out if don't have audio
+//#define HAVE_AUDIO // Comment out if don't have audio
 
 #ifdef HAVE_AUDIO
 #include <ESP_I2S.h>
@@ -71,9 +71,18 @@ I2SClass I2S;
 
 
 // Audio variables
-int sampleRate = 16000;      // Sample rate in Hz
-const size_t sampleBytes = 1024; // Sample buffer size (in bytes)
-int16_t* sampleBuffer = NULL;  // Pointer to the sample buffer
+//int sampleRate = 16000;      // Sample rate in Hz
+// int sampleRate = 8000;      // Sample rate in Hz
+// const size_t sampleBytes = 1024; // Sample buffer size (in bytes)
+// int16_t* sampleBuffer = NULL;  // Pointer to the sample buffer
+
+// Audio parameters
+static const int sampleRate = 8000;          // 8 kHz for G.711
+static const size_t sampleCount = 160;       // 20 ms at 8 kHz
+static const size_t sampleBytes = sampleCount * sizeof(int16_t);  // 320 bytes
+static const size_t g711Bytes = sampleCount; // 160 bytes
+static int16_t* sampleBuffer = NULL;         // PCM buffer for I2S
+static uint8_t* g711Buffer = NULL;           // G.711 buffer for RTSP
 #endif
 
 
@@ -186,13 +195,44 @@ void getFrameQuality() {
  * 
  * @return true if setup is successful, false otherwise. 
  */
+// static bool setupMic() {
+//   bool res;
+//   // I2S mic and I2S amp can share same I2S channel
+//   I2S.setPins(I2S_SCK, I2S_WS, I2S_SDO, I2S_SDI, -1); // BCLK/SCK, LRCLK/WS, SDOUT, SDIN, MCLK
+//   res = I2S.begin(I2S_MODE_STD, sampleRate, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO, I2S_STD_SLOT_LEFT);
+//   if (sampleBuffer == NULL) sampleBuffer = (int16_t*)malloc(sampleBytes);
+//   return res;
+// }
+
 static bool setupMic() {
   bool res;
-  // I2S mic and I2S amp can share same I2S channel
-  I2S.setPins(I2S_SCK, I2S_WS, I2S_SDO, I2S_SDI, -1); // BCLK/SCK, LRCLK/WS, SDOUT, SDIN, MCLK
-  res = I2S.begin(I2S_MODE_STD, sampleRate, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO, I2S_STD_SLOT_LEFT);
+  // Configure I2S pins
+  I2S.setPins(I2S_SCK, I2S_WS, I2S_SDO, I2S_SDI, -1);  // No MCLK
+
+  // Initialize I2S: 8 kHz, 16-bit, mono
+  res = I2S.begin(I2S_MODE_STD, sampleRate, I2S_DATA_BIT_WIDTH_16BIT, 
+                  I2S_SLOT_MODE_MONO, I2S_STD_SLOT_LEFT);
+  if (!res) {
+    Serial.println("I2S initialization failed");
+    return false;
+  }
+
+  // Allocate buffers
+#ifdef USE_PSRAM
+  if (sampleBuffer == NULL) sampleBuffer = (int16_t*)ps_malloc(sampleBytes);
+  if (g711Buffer == NULL) g711Buffer = (uint8_t*)ps_malloc(g711Bytes);
+#else
   if (sampleBuffer == NULL) sampleBuffer = (int16_t*)malloc(sampleBytes);
-  return res;
+  if (g711Buffer == NULL) g711Buffer = (uint8_t*)malloc(g711Bytes);
+#endif
+
+  if (sampleBuffer == NULL || g711Buffer == NULL) {
+    Serial.println("Buffer allocation failed");
+    return false;
+  }
+
+  Serial.printf("Free heap after setup: %u\n", ESP.getFreeHeap());
+  return true;
 }
 
 /** 
@@ -210,6 +250,7 @@ static size_t micInput() {
  * @brief Task to send audio data via RTP. 
  */
 void sendAudio(void* pvParameters) {
+  Serial.printf("[Audio] Started on Core %d\n", xPortGetCoreID());
   while (true) {
     if (rtspServer.readyToSendAudio()) {
       size_t bytesRead = micInput();
@@ -222,19 +263,42 @@ void sendAudio(void* pvParameters) {
 }
 
 //Callback function to handle received audio
+// void receivedAudio(const uint8_t* l16Data, size_t len) {
+//   // Example: Play received audio (implement your playback logic here)
+//   Serial.printf("Received audio data of length: %d\n", len);
+//   size_t bytesWritten = I2S.write(l16Data, len);
+// }
 void receivedAudio(const uint8_t* l16Data, size_t len) {
-  // Example: Play received audio (implement your playback logic here)
-  //Serial.printf("Received audio data of length: %d\n", len);
-  size_t bytesWritten = I2S.write(l16Data, len);
-  //Serial.printf("Sent %d bytes of audio data to I2S.\n", bytesWritten);
-}
+  // size_t numSamples = len / sizeof(int16_t);
+  // Serial.printf("Received audio data, Length: %d, Samples: %d\n", len, numSamples);
 
+  // // Log first 4 samples using a for loop
+  // const int16_t* pcmData = (const int16_t*)l16Data;
+  // size_t samplesToLog = min(numSamples, (size_t)4); // Log up to 4 samples
+  // if (samplesToLog > 0) {
+  //   Serial.print("Samples: ");
+  //   for (size_t i = 0; i < samplesToLog; i++) {
+  //     Serial.printf("%d", pcmData[i]);
+  //     if (i < samplesToLog - 1) {
+  //       Serial.print(", ");
+  //     }
+  //   }
+  //   Serial.println();
+  // }
+
+  // Write to I2S
+  size_t bytesWritten = I2S.write(l16Data, len);
+  if (bytesWritten != len) {
+    Serial.printf("I2S write failed: Wrote %d of %d bytes\n", bytesWritten, len);
+  }
+}
 #endif
 
 /** 
  * @brief Task to send jpeg frames via RTP. 
 */
 void sendVideo(void* pvParameters) { 
+  Serial.printf("[Video] Started on Core %d\n", xPortGetCoreID());
   while (true) { 
     // Send frame via RTP
     if(rtspServer.readyToSendFrame()) {
@@ -290,13 +354,15 @@ void setup() {
   if (setupMic()) {
     Serial.println("Microphone Setup Complete");
     // Create tasks for sending audio
-    xTaskCreate(sendAudio, "Audio", 8192, NULL, 8, &audioTaskHandle);
+    //xTaskCreate(sendAudio, "Audio", 8192, NULL, 8, &audioTaskHandle);
+    xTaskCreatePinnedToCore(sendAudio, "Audio", 8192, NULL, 8, &audioTaskHandle, 1);
   } else {
     Serial.println("Mic Setup Failed!");
   }
     // Pass the callback to the RTSP server for handling received audio
   rtspServer.setAudioReceiveCallback(receivedAudio);
 
+#ifdef USE_SPEEXDSP
   // Configure audio processing settings via audioProcessor
   // Note: These settings can be adjusted dynamically in loop() or elsewhere
 
@@ -304,14 +370,14 @@ void setup() {
   rtspServer.audioProcessor.enableAEC(true); // Enable to remove echo from mic input using speaker output
 
   // Microphone Preprocessing
-  rtspServer.audioProcessor.enableMicNoiseSuppression(true);     // Enable to reduce background noise from mic
+  rtspServer.audioProcessor.enableMicNoiseSuppression(false);     // Enable to reduce background noise from mic
   rtspServer.audioProcessor.setMicNoiseSuppressionLevel(-25);    // Set noise reduction strength (-10 to -40 dB, lower = stronger)
-  rtspServer.audioProcessor.enableMicAGC(true, 0.75f);           // Enable Automatic Gain Control to normalize mic volume (target 0.0-1.0)
-  rtspServer.audioProcessor.enableMicVAD(true);                  // Enable Voice Activity Detection to send audio only when voice is detected
+  rtspServer.audioProcessor.enableMicAGC(true, 0.8f);           // Enable Automatic Gain Control to normalize mic volume (target 0.0-1.0)
+  rtspServer.audioProcessor.enableMicVAD(false);                  // Enable Voice Activity Detection to send audio only when voice is detected
   rtspServer.audioProcessor.setMicVADThreshold(80);              // Set VAD sensitivity (0-100, higher = stricter)
 
   // Speaker Preprocessing
-  rtspServer.audioProcessor.enableSpeakerNoiseSuppression(true); // Disable noise suppression for speaker output (optional cleanup)
+  rtspServer.audioProcessor.enableSpeakerNoiseSuppression(false); // Disable noise suppression for speaker output (optional cleanup)
   rtspServer.audioProcessor.setSpeakerNoiseSuppressionLevel(-15); // Set speaker NS strength if enabled
   rtspServer.audioProcessor.enableSpeakerAGC(true, 0.9f);        // Enable AGC to boost speaker volume (target 0.0-1.0)
 
@@ -321,9 +387,12 @@ void setup() {
   // rtspServer.audioProcessor.setResamplerQuality(7);           // Set resampling quality (0-10, higher = better but slower)
   // rtspServer.audioProcessor.resizeBuffer(2048);               // Resize ring buffer for AEC reference (in samples)
 #endif
+#endif
 
   // Create tasks for sending video, and subtitles
-  xTaskCreate(sendVideo, "Video", 8192, NULL, 9, &videoTaskHandle);
+  //xTaskCreate(sendVideo, "Video", 8192, NULL, 9, &videoTaskHandle);
+  xTaskCreatePinnedToCore(sendVideo, "Video", 8192, NULL, 8, &videoTaskHandle, 0);
+
   
   // You can use a task to send subtitles every second
   //xTaskCreate(sendSubtitles, "Subtitles", 2560, NULL, 7, &subtitlesTaskHandle);
@@ -394,7 +463,7 @@ void setup() {
     Serial.println("Failed to start RTSP server"); 
   }
 #else
-  if (rtspServer.init(RTSPServer::VIDEO_AUDIO_SUBTITLES, 554, 16000)) { 
+  if (rtspServer.init(RTSPServer::VIDEO_AND_SUBTITLES, 554)) { 
     Serial.printf("RTSP server started successfully using default values, Connect to rtsp://%s:554/\n", WiFi.localIP().toString().c_str());
   } else { 
     Serial.println("Failed to start RTSP server"); 
@@ -415,7 +484,89 @@ void setup() {
   }
 }
 
+// Function to get the number of tasks
+UBaseType_t getTaskCount() {
+  return uxTaskGetNumberOfTasks();
+}
+
+void checkTasks() {
+  // Get task count
+  UBaseType_t taskCount = getTaskCount();
+  
+  // Allocate taskDetails dynamically
+  TaskStatus_t* taskDetails = (TaskStatus_t*)heap_caps_malloc(taskCount * sizeof(TaskStatus_t), MALLOC_CAP_8BIT);
+  if (!taskDetails) {
+    Serial.println("ERROR: Failed to allocate taskDetails");
+    return;
+  }
+
+  // Get task statuses
+  UBaseType_t numTasks = uxTaskGetSystemState(taskDetails, taskCount, NULL);
+
+  Serial.println("=== Task Status ===");
+  Serial.printf("Total Tasks: %u\n", numTasks);
+  Serial.println("Legend: R=Running, X=Ready, B=Blocked, S=Suspended, D=Deleted");
+  Serial.println("#\tName\t\tState\tPrio\tBasePrio\tStack (Words)\tStack (Bytes)\tCore\tNum");
+
+  for (UBaseType_t i = 0; i < numTasks; i++) {
+    const char* name = taskDetails[i].pcTaskName ? taskDetails[i].pcTaskName : "Unknown";
+    const char* stateStr = (taskDetails[i].eCurrentState == eRunning) ? "R" :
+                           (taskDetails[i].eCurrentState == eReady) ? "X" :
+                           (taskDetails[i].eCurrentState == eBlocked) ? "B" :
+                           (taskDetails[i].eCurrentState == eSuspended) ? "S" : "D";
+    int priority = taskDetails[i].uxCurrentPriority;
+    int basePriority = taskDetails[i].uxBasePriority;
+    size_t stackFreeWords = taskDetails[i].xHandle ? uxTaskGetStackHighWaterMark(taskDetails[i].xHandle) : 0;
+    size_t stackFreeBytes = stackFreeWords * 4; // 4 bytes per word on ESP32
+    int pinnedCore = taskDetails[i].xHandle ? xTaskGetCoreID(taskDetails[i].xHandle) : -1;
+    int num = taskDetails[i].xTaskNumber;
+
+    // Core detection for unpinned tasks
+    int currentCore = pinnedCore;
+    if (pinnedCore == 0x7FFFFFFF && taskDetails[i].xHandle) {
+      if (taskDetails[i].eCurrentState == eRunning) {
+        if (taskDetails[i].xHandle == xTaskGetCurrentTaskHandleForCore(0)) {
+          currentCore = 0;
+        } else if (taskDetails[i].xHandle == xTaskGetCurrentTaskHandleForCore(1)) {
+          currentCore = 1;
+        }
+      }
+    }
+
+    Serial.printf("%u\t%-12s\t%s\t%d\t%d\t\t%u\t\t%u\t\t%d\t%d", 
+                  i + 1, name, stateStr, priority, basePriority, stackFreeWords, stackFreeBytes, currentCore, num);
+
+    if (strcmp(name, "loopTask") == 0) Serial.print("\t[Arduino]");
+    if (stackFreeBytes < 1000 && stackFreeBytes > 0) Serial.print(" WARNING: Low stack!");
+    if (pinnedCore == 0x7FFFFFFF) {
+      Serial.print(" NOTE: No core affinity");
+      if (taskDetails[i].eCurrentState != eRunning) {
+        Serial.print(" (not running)");
+      }
+    }
+    Serial.println();
+  }
+
+  // Free taskDetails
+  heap_caps_free(taskDetails);
+
+  uint32_t totalHeap = ESP.getFreeHeap();
+  uint32_t psramHeap = ESP.getFreePsram();
+  uint32_t sramHeap = (totalHeap > psramHeap) ? totalHeap - psramHeap : totalHeap;
+
+  Serial.printf("Total Free Heap: %lu bytes (%lu KB)\n", totalHeap, totalHeap / 1024);
+  Serial.printf("SRAM Free Heap: %lu bytes (%lu KB)\n", sramHeap, sramHeap / 1024);
+  Serial.printf("PSRAM Free Heap: %lu bytes (%lu KB)\n", psramHeap, psramHeap / 1024);
+  Serial.printf("Max Alloc Heap: %lu bytes (%lu KB)\n", ESP.getMaxAllocHeap(), ESP.getMaxAllocHeap() / 1024);
+  Serial.printf("Min Free Heap: %lu bytes (%lu KB)\n", ESP.getMinFreeHeap(), ESP.getMinFreeHeap() / 1024);
+  Serial.println("==================");
+}
+
 void loop() {
-  delay(1000);
-  vTaskDelete(NULL); // free 8k ram and delete the loop
+  // static unsigned long lastCheck = 0;
+  // if (millis() - lastCheck >= 10000) {  // Check every 5s
+  //   checkTasks();
+  //   lastCheck = millis();
+  // }
+  // delay(100);  // Light load on Core 1
 }
